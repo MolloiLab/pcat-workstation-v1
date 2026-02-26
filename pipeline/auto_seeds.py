@@ -244,113 +244,279 @@ def load_mask_as_zyx(mask_nifti: str | Path, meta: Dict[str, Any]) -> np.ndarray
 # Step 4: Separate LAD / LCX / RCA using connected components + anatomy
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Minimum voxel threshold for a component to be considered a major coronary
+# AFTER aorta exclusion.  Using an absolute floor (200 vox) rather than a
+# fraction of total mask size avoids incorrectly filtering the smallest
+# coronary (e.g. RCA proximal stub, typically 400–1000 voxels in CCTA).
+# ─────────────────────────────────────────────────────────────────────────────
+_MAJOR_VESSEL_MIN_VOX = 200      # absolute lower bound
+_AORTA_SIZE_RATIO = 3.0          # largest/2nd-largest ratio → aorta flag
+
+
+def _try_watershed_split(
+    mask_zyx: np.ndarray,
+    meta: Dict[str, Any],
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Attempt to split a single merged coronary blob into sub-regions using a
+    morphological erosion-based watershed approach.
+
+    Strategy:
+      1. Iteratively erode the mask until ≥ 2 components of ≥ 50 voxels each
+         appear (or until erosion destroys the mask).
+      2. Use the eroded components as Voronoi seeds to partition the ORIGINAL
+         mask voxels by nearest-centroid assignment.
+      3. Return list of sub-mask dicts: [{mask, centroid, n_vox}, ...]
+
+    Returns None if the blob cannot be split into ≥ 2 usable parts.
+    """
+    from scipy.ndimage import binary_erosion
+    from scipy.ndimage import label as nd_label_ws
+
+    structure = np.ones((3, 3, 3), dtype=int)
+    SEED_MIN_VOX = 50
+    N_SEEDS_TARGET = 2
+
+    eroded = mask_zyx.copy()
+    best_seeds_labeled: Optional[np.ndarray] = None
+    best_n_seeds = 0
+
+    for _iter in range(1, 8):
+        eroded = binary_erosion(eroded, structure=structure, iterations=1)
+        if not eroded.any():
+            break
+        lbl, n = nd_label_ws(eroded, structure=structure)
+        seed_sizes = sorted(
+            [int((lbl == i).sum()) for i in range(1, n + 1)], reverse=True
+        )
+        n_good = sum(1 for s in seed_sizes if s >= SEED_MIN_VOX)
+        if n_good >= N_SEEDS_TARGET:
+            best_seeds_labeled = lbl
+            best_n_seeds = n_good
+            if n_good >= 3:
+                break
+
+    if best_seeds_labeled is None or best_n_seeds < N_SEEDS_TARGET:
+        return None
+
+    # Collect up to 3 largest seeds
+    seed_comps: List[Dict[str, Any]] = []
+    n_lbl = int(best_seeds_labeled.max())
+    for i in range(1, n_lbl + 1):
+        sz = int((best_seeds_labeled == i).sum())
+        if sz >= SEED_MIN_VOX:
+            pts = np.argwhere(best_seeds_labeled == i)
+            centroid = pts.mean(axis=0)
+            seed_comps.append({"id": i, "n_vox": sz, "centroid": centroid})
+    seed_comps.sort(key=lambda c: -c["n_vox"])
+    seed_comps = seed_comps[:3]
+
+    # Voronoi partition: assign each original mask voxel to nearest seed centroid
+    mask_pts = np.argwhere(mask_zyx)  # (M, 3)
+    seed_centroids = np.array([c["centroid"] for c in seed_comps])  # (K, 3)
+    diffs = mask_pts[:, None, :] - seed_centroids[None, :, :]  # (M, K, 3)
+    dists = np.linalg.norm(diffs, axis=2)  # (M, K)
+    assignments = np.argmin(dists, axis=1)  # (M,)
+
+    result: List[Dict[str, Any]] = []
+    for k, sc in enumerate(seed_comps):
+        vm = np.zeros_like(mask_zyx)
+        vm_pts = mask_pts[assignments == k]
+        if len(vm_pts) > 0:
+            vm[vm_pts[:, 0], vm_pts[:, 1], vm_pts[:, 2]] = True
+        result.append({
+            "n_vox": int(vm.sum()),
+            "centroid": sc["centroid"],
+            "mask": vm,
+            "id": -(k + 1),      # negative id signals watershed partition
+            "use_mask": True,
+        })
+
+    print(
+        "[auto_seeds] Watershed split → "
+        + ", ".join(f"{r['n_vox']} vox" for r in result)
+    )
+    return result
+
+
 def separate_vessels(
     mask_zyx: np.ndarray,
     meta: Dict[str, Any],
 ) -> Dict[str, np.ndarray]:
     """
-    Split the combined coronary mask into LAD, LCX, RCA sub-masks using:
-      - Connected-component labelling (26-connected)
-      - Anatomical heuristics based on position in the volume
+    Split the combined coronary mask into LAD, LCX, RCA sub-masks.
 
-    Heuristics (standard cardiac CT orientation, patient supine):
-      - RCA: rightmost large component (most negative X / leftmost in image X)
-      - LAD: anterior (smallest X index in image) of the left-side components
-      - LCX: posterior/lateral of the left-side components
+    Pipeline:
+      1. Connected-component labelling (26-connected).
+      2. Aorta-exclusion: if the largest component is >3× the second-largest,
+         it is treated as an aortic over-segmentation and removed.
+      3. Size filtering: keep components ≥ 200 voxels (absolute floor).
+      4. Single-blob recovery: if only 1 component survives, attempt a
+         morphological-erosion watershed to split merged vessels.
+      5. Anatomical vessel assignment:
+         - RCA:  smallest X centroid (patient-right coronary sinus)
+         - LAD:  smallest Y centroid among left-side components (anterior)
+         - LCX:  largest  Y centroid among left-side components (posterior)
 
-    Returns dict: {"LAD": bool_array, "LCX": bool_array, "RCA": bool_array}
-    If fewer than 3 components are found, returns the available ones and
-    warns about the missing vessel.
+    Returns dict {"LAD": bool_array, "LCX": bool_array, "RCA": bool_array}.
+    Missing vessels are omitted with a RuntimeWarning.
     """
     structure = np.ones((3, 3, 3), dtype=int)  # 26-connected
     labeled, n_components = nd_label(mask_zyx, structure=structure)
-
     if n_components == 0:
         raise ValueError(
             "TotalSegmentator produced an empty coronary mask. "
             "Ensure the CCTA covers the proximal coronary arteries."
         )
 
-    # Compute centroid of each component and keep the N_largest
-    component_info = []
+    # ── Build component info ──────────────────────────────────────────────
+    component_info: List[Dict[str, Any]] = []
     for comp_id in range(1, n_components + 1):
         pts = np.argwhere(labeled == comp_id)  # (N, 3) in (Z, Y, X)
-        n_vox = len(pts)
-        centroid = pts.mean(axis=0)  # [z_mean, y_mean, x_mean]
         component_info.append({
             "id": comp_id,
-            "n_vox": n_vox,
-            "centroid": centroid,
-            "pts": pts,
+            "n_vox": len(pts),
+            "centroid": pts.mean(axis=0),
         })
+    component_info.sort(key=lambda c: -c["n_vox"])  # largest first
 
-    # Keep only components large enough to be a major coronary (>= 20 voxels)
-    min_vox = max(20, mask_zyx.sum() // 20)
-    major = [c for c in component_info if c["n_vox"] >= min_vox]
-    major.sort(key=lambda c: -c["n_vox"])  # largest first
-
-    if len(major) == 0:
-        raise ValueError(
-            "No large enough connected components found in coronary mask. "
-            f"Total mask voxels: {mask_zyx.sum()}"
-        )
-
-    # Sort by X centroid (image X = patient left-right):
-    # In standard axial CT (supine, head-first), the RCA originates from the
-    # right coronary sinus → lower X index (patient right = smaller X in LPS).
-    # LAD & LCX originate from the left coronary sinus → higher X index.
-    major.sort(key=lambda c: c["centroid"][2])  # sort by x_centroid ascending
-
-    vessel_masks: Dict[str, np.ndarray] = {}
-
-    if len(major) == 1:
+    # ── Aorta-exclusion heuristic ─────────────────────────────────────────
+    if (
+        len(component_info) >= 2
+        and component_info[0]["n_vox"] / max(1, component_info[1]["n_vox"])
+        > _AORTA_SIZE_RATIO
+    ):
+        aorta_comp = component_info[0]
+        ratio = aorta_comp["n_vox"] / max(1, component_info[1]["n_vox"])
         warnings.warn(
-            "Only 1 connected component found — assigning to LAD. "
-            "Consider adding more waypoints manually.",
+            f"Largest component ({aorta_comp['n_vox']} vox) is {ratio:.1f}× "
+            "larger than the next — treating as aortic over-segmentation and ",
             RuntimeWarning,
         )
-        vessel_masks["LAD"] = labeled == major[0]["id"]
-
-    elif len(major) == 2:
-        # Assume leftmost = RCA, rightmost split into LAD/LCX
-        # (RCA is rightmost in patient X → lowest image X)
-        rca_cand = major[0]
-        left_cand = major[1]
-
-        vessel_masks["RCA"] = labeled == rca_cand["id"]
-        # Can't separate LAD/LCX — assign both left-side voxels to LAD
-        vessel_masks["LAD"] = labeled == left_cand["id"]
+        print(
+            f"[auto_seeds] Aorta excluded: comp #{aorta_comp['id']} "
+            f"({aorta_comp['n_vox']} vox, centroid="
+            f"({aorta_comp['centroid'][0]:.0f},{aorta_comp['centroid'][1]:.0f},"
+            f"{aorta_comp['centroid'][2]:.0f}))"
+        )
+        mask_zyx = mask_zyx & ~(labeled == aorta_comp["id"])
+        component_info = component_info[1:]
+    # ── Size filtering ──────────────────────────────────────────────────
+    # Keep ALL components >= 200 vox (don't cap at 3 here — we need to
+    # search beyond the top-2 largest for the RCA, which is often smaller
+    # than distal LAD/LCX fragments).
+    major: List[Dict[str, Any]] = [
+        c for c in component_info if c["n_vox"] >= _MAJOR_VESSEL_MIN_VOX
+    ]
+    major.sort(key=lambda c: -c["n_vox"])  # largest first
+    if not major:
+        raise ValueError(
+            "No large enough connected components found in coronary mask. "
+            f"Total mask voxels: {int(mask_zyx.sum())}"
+        )
+    # ── Single-blob watershed split ─────────────────────────────────────
+    if len(major) == 1:
+        print("[auto_seeds] Only 1 major component — attempting watershed split …")
+        single_mask = (labeled == major[0]["id"])
+        ws_result = _try_watershed_split(single_mask, meta)
+        if ws_result is not None and len(ws_result) >= 2:
+            major = ws_result
+        else:
+            warnings.warn(
+                "Watershed split failed — assigning single component to LAD. "
+                "Run seed_picker.py to add LCX/RCA seeds manually.",
+                RuntimeWarning,
+            )
+    # ── Vessel assignment ────────────────────────────────────────────────
+    #
+    # Strategy (handles the case where RCA is NOT among the 2 largest comps):
+    #   1. Top-2 by size → left coronaries (LAD + LCX).
+    #      Sorted by Y: smallest Y = anterior = LAD, largest Y = posterior = LCX.
+    #   2. RCA → largest component NOT in top-2 whose X centroid is clearly
+    #      to the patient-right of both left coronaries
+    #      (i.e. centroid[2] < min(LAD_x, LCX_x) - _RCA_X_MARGIN_VOX).
+    #   3. Fallback A: if no component satisfies the X constraint, pick the
+    #      one with the smallest X centroid among all remaining >= 200-vox comps.
+    #   4. Fallback B: if only 1–2 comps exist, fall back to legacy logic.
+    #
+    _RCA_X_MARGIN_VOX = 5  # RCA centroid must be >= 5 vox right of LAD/LCX
+    def _get_mask(c: dict) -> np.ndarray:
+        if c.get("use_mask"):
+            return c["mask"].astype(bool)
+        return (labeled == c["id"]).astype(bool)
+    vessel_masks: Dict[str, np.ndarray] = {}
+    if len(major) == 1:
         warnings.warn(
-            "Only 2 major components found. LAD and LCX are merged into 'LAD'. "
+            "Only 1 component — assigning to LAD. Add seeds manually if needed.",
+            RuntimeWarning,
+        )
+        vessel_masks["LAD"] = _get_mask(major[0])
+    elif len(major) == 2:
+        # Only 2 comps: smallest X = RCA, largest X = LAD (best guess)
+        sorted2 = sorted(major, key=lambda c: c["centroid"][2])
+        vessel_masks["RCA"] = _get_mask(sorted2[0])
+        vessel_masks["LAD"] = _get_mask(sorted2[1])
+        warnings.warn(
+            "Only 2 major components found; LCX unavailable. "
             "Run seed_picker.py to set separate LCX seeds.",
             RuntimeWarning,
         )
-
     else:
-        # 3+ components:
-        # Leftmost (smallest X) = RCA
-        # Of the remaining, the one most anterior (smallest Y centroid in axial CT,
-        # which maps to anterior direction in patient coords) = LAD
-        # The other = LCX
-        rca_comp = major[0]
-        left_comps = major[1:]
+        # ── Step 1: top-2 by size are the left coronaries ─────────────────
+        left_candidates = list(major[:2])
+        remaining = list(major[2:])
 
-        # Among left_comps, LAD is more anterior (smaller Y centroid)
-        left_comps.sort(key=lambda c: c["centroid"][1])  # sort by y ascending
-        lad_comp = left_comps[0]   # most anterior
-        lcx_comp = left_comps[1]   # more posterior/lateral
+        left_x_vals = [c["centroid"][2] for c in left_candidates]
+        left_x_min = min(left_x_vals)
 
-        vessel_masks["RCA"] = labeled == rca_comp["id"]
-        vessel_masks["LAD"] = labeled == lad_comp["id"]
-        vessel_masks["LCX"] = labeled == lcx_comp["id"]
+        # ── Step 2: find RCA among remaining comps ────────────────────────
+        # Prefer a comp clearly to the patient-right of the left coronaries
+        rca_candidates = [
+            c for c in remaining
+            if c["centroid"][2] < left_x_min - _RCA_X_MARGIN_VOX
+        ]
+        if rca_candidates:
+            # Take the largest qualifying candidate
+            rca_comp = max(rca_candidates, key=lambda c: c["n_vox"])
+        elif remaining:
+            # Fallback A: no clear X separation — pick smallest-X remaining comp
+            rca_comp = min(remaining, key=lambda c: c["centroid"][2])
+            warnings.warn(
+                f"RCA X-centroid not clearly separated from left coronaries "
+                f"(left_x_min={left_x_min:.0f}). Using smallest-X remaining comp.",
+                RuntimeWarning,
+            )
+        else:
+            # Fallback B: no remaining comps — pull RCA from top-3 by X
+            top3 = sorted(major[:3], key=lambda c: c["centroid"][2])
+            rca_comp = top3[0]
+            left_candidates = list(top3[1:])
+            warnings.warn(
+                "RCA not found outside top-2 components; falling back to "
+                "smallest-X within top-3. Verify seeds visually.",
+                RuntimeWarning,
+            )
 
-    print(f"[auto_seeds] Found {len(major)} major coronary components → "
-          f"{list(vessel_masks.keys())}")
+        # ── Step 3: assign LAD / LCX from left candidates by Y ───────────
+        left_sorted_y = sorted(left_candidates, key=lambda c: c["centroid"][1])
+        lad_comp = left_sorted_y[0]   # smallest Y = anterior = LAD
+        lcx_comp = left_sorted_y[-1]  # largest  Y = posterior = LCX
+        vessel_masks["RCA"] = _get_mask(rca_comp)
+        vessel_masks["LAD"] = _get_mask(lad_comp)
+        vessel_masks["LCX"] = _get_mask(lcx_comp)
+    print(f"[auto_seeds] Vessel assignment: {list(vessel_masks.keys())}")
     for vn, vm in vessel_masks.items():
-        print(f"[auto_seeds]   {vn}: {vm.sum()} voxels")
-
+        pts = np.argwhere(vm)
+        if len(pts):
+            ctr = pts.mean(axis=0)
+            print(
+                f"[auto_seeds]   {vn}: {int(vm.sum())} voxels, "
+                f"centroid ZYX=({ctr[0]:.0f},{ctr[1]:.0f},{ctr[2]:.0f})"
+            )
+        else:
+            print(f"[auto_seeds]   {vn}: 0 voxels")
     return vessel_masks
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 5 & 6: Skeletonize → order → extract ostium + waypoints
@@ -517,9 +683,33 @@ def extract_seeds_from_mask(
             waypoints_ijk.append(prox_pts[idx].tolist())
     else:
         waypoints_ijk = []
-
     print(f"[auto_seeds] {vessel_name}: ostium={ostium_ijk}, "
           f"{len(waypoints_ijk)} waypoints, arc-length={cumlen[-1]:.1f}mm")
+    # ── Radius quality check ─────────────────────────────────────────────
+    # Estimate mean vessel radius using a distance-transform approximation.
+    # If sub-voxel (< 0.5 px) the PCAT shell will fall inside the vessel wall
+    # and the analysis will return NaN mean HU.
+    try:
+        from scipy.ndimage import distance_transform_edt
+        dt = distance_transform_edt(vessel_mask_zyx)
+        if len(prox_pts) > 0:
+            prox_radii_vox = dt[prox_pts[:, 0], prox_pts[:, 1], prox_pts[:, 2]]
+            mean_radius_vox = float(prox_radii_vox.mean())
+            mean_radius_mm = mean_radius_vox * float(np.min(spacing_mm))
+            print(
+                f"[auto_seeds] {vessel_name}: mean proximal radius = "
+                f"{mean_radius_mm:.2f} mm ({mean_radius_vox:.2f} vox)"
+            )
+            if mean_radius_vox < 0.5:
+                warnings.warn(
+                    f"{vessel_name}: mean proximal radius is sub-voxel "
+                    f"({mean_radius_mm:.2f} mm / {mean_radius_vox:.2f} vox). "
+                    "PCAT shell may fall inside vessel wall — expect NaN mean HU. "
+                    "Adjust seeds manually with seed_picker.py.",
+                    RuntimeWarning,
+                )
+    except Exception:
+        pass  # radius check is non-critical
 
     return {
         "ostium_ijk": ostium_ijk,

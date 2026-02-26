@@ -177,19 +177,23 @@ class TestSkeletonToOrderedPath:
 class TestSeparateVessels:
     def _make_three_tubes(self, shape=(30, 60, 80)):
         """
-        Three non-overlapping tubes:
-          - 'RCA-like': leftmost X (center_x=15)
-          - 'LAD-like': anterior Y (center_yx=(15,50))
-          - 'LCX-like': posterior Y (center_yx=(45,50))
+        Three non-overlapping tubes that mimic clinical anatomy:
+          - 'LAD-like': largest, high X, low Y (radius=6)
+          - 'LCX-like': second-largest, high X, high Y (radius=5)
+          - 'RCA-like': smallest, leftmost X (radius=3)
+        LAD and LCX are the two largest components (as in real CCTA), so the
+        new top-2-by-size heuristic correctly selects them as left coronaries,
+        leaving RCA (smallest, X=15) to be found in 'remaining' and identified
+        by its clearly lower X centroid (15 vs 60, margin well above 5 vox).
         """
         mask = np.zeros(shape, dtype=bool)
-        # RCA: low X
         z, y, x = np.indices(shape)
-        mask |= ((y - 15) ** 2 + (x - 15) ** 2 <= 4 ** 2) & (z >= 2) & (z <= 27)
-        # LAD: high X, low Y
-        mask |= ((y - 15) ** 2 + (x - 60) ** 2 <= 4 ** 2) & (z >= 2) & (z <= 27)
-        # LCX: high X, high Y
-        mask |= ((y - 45) ** 2 + (x - 60) ** 2 <= 4 ** 2) & (z >= 2) & (z <= 27)
+        # LAD: high X, low Y — largest tube (radius=6)
+        mask |= ((y - 15) ** 2 + (x - 60) ** 2 <= 6 ** 2) & (z >= 2) & (z <= 27)
+        # LCX: high X, high Y — second-largest (radius=5)
+        mask |= ((y - 45) ** 2 + (x - 60) ** 2 <= 5 ** 2) & (z >= 2) & (z <= 27)
+        # RCA: low X — smallest (radius=3), x=15 is clearly right of left_x_min=60
+        mask |= ((y - 30) ** 2 + (x - 15) ** 2 <= 3 ** 2) & (z >= 2) & (z <= 27)
         return mask
 
     def test_three_components_yields_three_vessels(self):
@@ -224,6 +228,34 @@ class TestSeparateVessels:
         for vname in ["LAD", "LCX"]:
             other_x = np.argwhere(result[vname])[:, 2].mean()
             assert rca_x < other_x, f"RCA x-centroid should be less than {vname}"
+
+    def test_rca_found_outside_top2_by_size(self):
+        """
+        Regression test for Patient 1200 scenario: RCA is NOT among the
+        top-2 largest components. The algorithm must search beyond top-2
+        to find RCA by X-centroid position (x=15 << left_x_min=63).
+        """
+        shape = (30, 70, 90)
+        mask = np.zeros(shape, dtype=bool)
+        z, y, x = np.indices(shape)
+        # LAD: largest, high X, low Y
+        mask |= ((y - 15) ** 2 + (x - 70) ** 2 <= 7 ** 2) & (z >= 2) & (z <= 27)
+        # LCX: 2nd largest, high X, high Y
+        mask |= ((y - 50) ** 2 + (x - 70) ** 2 <= 6 ** 2) & (z >= 2) & (z <= 27)
+        # Distal fragment: 3rd largest, high X, mid Y (should NOT be RCA)
+        mask |= ((y - 30) ** 2 + (x - 65) ** 2 <= 5 ** 2) & (z >= 2) & (z <= 27)
+        # RCA: 4th largest, clearly lower X (x=15 vs left_x_min ~63)
+        mask |= ((y - 30) ** 2 + (x - 15) ** 2 <= 3 ** 2) & (z >= 2) & (z <= 27)
+        meta = _make_meta(shape=shape)
+        result = separate_vessels(mask, meta)
+        assert set(result.keys()) == {"LAD", "LCX", "RCA"}, (
+            f"Expected all 3 vessels, got: {set(result.keys())}"
+        )
+        rca_x = np.argwhere(result["RCA"])[:, 2].mean()
+        lad_x = np.argwhere(result["LAD"])[:, 2].mean()
+        lcx_x = np.argwhere(result["LCX"])[:, 2].mean()
+        assert rca_x < lad_x, f"RCA x={rca_x:.0f} should be < LAD x={lad_x:.0f}"
+        assert rca_x < lcx_x, f"RCA x={rca_x:.0f} should be < LCX x={lcx_x:.0f}"
 
     def test_two_components_warns_and_assigns(self):
         """With only 2 tubes, should assign RCA + LAD with a warning."""
