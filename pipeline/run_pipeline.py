@@ -171,10 +171,26 @@ def run_patient(
         vessels = list(seeds_data.keys())
     print(f"[pipeline] Vessels to process: {vessels}")
 
-    # ── Step 3: Compute vesselness (shared across all vessels) ───────────
-    print("\n[pipeline] Computing Frangi vesselness filter (this may take 1-3 minutes)...")
+    # ── Step 3: Compute vesselness (ROI-cropped around seed points) ────────
+    # Collect ALL seed points across all vessels so the ROI covers the whole
+    # coronary tree — Frangi runs on a small sub-volume instead of the full
+    # 512×512×405, giving a 50-100× speedup.
+    all_seed_pts: List[List[int]] = []
+    for vname in vessels:
+        if vname not in seeds_data:
+            continue
+        vsd = seeds_data[vname]
+        all_seed_pts.append(vsd["ostium_ijk"])
+        all_seed_pts.extend(vsd.get("waypoints_ijk", []))
+
+    print("\n[pipeline] Computing Frangi vesselness filter (ROI-cropped — should take ~10s)...")
     t_v = time.time()
-    vesselness = compute_vesselness(volume, spacing_mm, sigmas=vesselness_sigmas)
+    vesselness = compute_vesselness(
+        volume, spacing_mm,
+        sigmas=vesselness_sigmas,
+        seed_points=all_seed_pts if all_seed_pts else None,
+        roi_margin_mm=20.0,
+    )
     print(f"[pipeline] Vesselness computed in {time.time() - t_v:.1f}s")
 
     # ── Per-vessel processing ─────────────────────────────────────────────
