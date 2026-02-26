@@ -72,6 +72,10 @@ from pipeline.visualize import (
     plot_summary,
 )
 
+from pipeline.auto_seeds import _detect_best_device as _auto_detect_device
+
+_DEFAULT_DEVICE = _auto_detect_device()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Known patient configurations (for batch mode)
@@ -110,7 +114,7 @@ def _ensure_seeds(
     seeds_path: Path,
     dicom_dir: Path,
     auto_seeds: bool,
-    auto_seeds_device: str = "cpu",
+    auto_seeds_device: str = _DEFAULT_DEVICE,
     auto_seeds_license: Optional[str] = None,
 ) -> None:
     """
@@ -161,7 +165,7 @@ def run_patient(
     skip_3d: bool = False,
     vesselness_sigmas: Optional[List[float]] = None,
     auto_seeds: bool = False,
-    auto_seeds_device: str = "cpu",
+    auto_seeds_device: str = _DEFAULT_DEVICE,
     auto_seeds_license: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -501,10 +505,10 @@ def main():
         ),
     )
     parser.add_argument(
-        "--auto-seeds-device", type=str, default="cpu",
+        "--auto-seeds-device", type=str, default=_DEFAULT_DEVICE,
         choices=["cpu", "gpu", "mps"],
         dest="auto_seeds_device",
-        help="Device for TotalSegmentator inference (default: cpu; safe on M3)"
+        help=f"Device for TotalSegmentator inference (auto-detected default: '{_DEFAULT_DEVICE}'). 'mps' on Apple Silicon is 5-10x faster than cpu."
     )
     parser.add_argument(
         "--auto-seeds-license", type=str, default=None,

@@ -1,31 +1,30 @@
 """
 auto_seeds.py
 Automatic coronary artery seed extraction using TotalSegmentator.
-
-Pipeline:
-  1. Convert DICOM volume → NIfTI (in a temp dir) for TotalSegmentator input
-  2. Run TotalSegmentator coronary_arteries task → binary mask NIfTI
+  1. Convert DICOM volume -> NIfTI (in a temp dir) for TotalSegmentator input
+  2. Run TotalSegmentator coronary_arteries task -> binary mask NIfTI
   3. Separate the mask into LAD / LCX / RCA components via connected-component
      labelling + anatomical heuristics (relative position in the volume)
   4. 3-D skeletonize each component to get the vessel centreline voxels
-  5. Order skeleton points from ostium → distal using BFS/DFS from the point
+  5. Order skeleton points from ostium -> distal using BFS/DFS from the point
      nearest the aorta
-  6. Extract ostium (first ordered point) and 1–3 evenly-spaced waypoints
+  6. Extract ostium (first ordered point) and 1-3 evenly-spaced waypoints
      along the proximal segment
   7. Write the standard seeds JSON used by run_pipeline.py
-
+Device selection (auto-detected):
+  - Apple Silicon (M1/M2/M3/M4): defaults to 'mps' (Metal GPU) -- 5-10x faster than CPU
+  - NVIDIA GPU:                   pass device='gpu'
+  - Fallback:                     'cpu'
 Usage (standalone):
     python pipeline/auto_seeds.py \
         --dicom  Rahaf_Patients/1200.2 \
         --output seeds/patient_1200.json
-
+    # Device is auto-detected (mps on Apple Silicon)
 Usage (Python API):
     from pipeline.auto_seeds import generate_seeds
-    seeds = generate_seeds(dicom_dir, output_path, device="cpu")
-
+    seeds = generate_seeds(dicom_dir, output_path)  # device auto-detected
 Requirements:
-    pip install TotalSegmentator  (installs torch, nibabel, nnunetv2, …)
-
+    pip install TotalSegmentator  (installs torch, nibabel, nnunetv2, ...)
 License note:
     TotalSegmentator coronary_arteries model requires a free academic licence.
     Obtain one at: https://backend.totalsegmentator.com/license-academic/
@@ -65,6 +64,31 @@ try:
     HAS_NIBABEL = True
 except ImportError:
     HAS_NIBABEL = False
+
+
+# ---------------------------------------------------------------------------
+# Device auto-detection
+# ---------------------------------------------------------------------------
+
+def _detect_best_device() -> str:
+    """
+    Return the best available device string for TotalSegmentator:
+      - 'mps'  on Apple Silicon (M1/M2/M3/M4) -- Metal GPU, 5-10x faster than CPU
+      - 'gpu'  if CUDA is available (NVIDIA)
+      - 'cpu'  fallback
+    """
+    try:
+        import torch
+        if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            return "mps"
+        if torch.cuda.is_available():
+            return "gpu"
+    except Exception:
+        pass
+    return "cpu"
+
+
+_DEFAULT_DEVICE = _detect_best_device()
 
 
 # Add project root to path
@@ -130,7 +154,7 @@ def dicom_to_nifti(
 def run_totalsegmentator(
     nifti_input: str | Path,
     output_dir: str | Path,
-    device: str = "cpu",
+    device: str = _DEFAULT_DEVICE,
     license_number: Optional[str] = None,
 ) -> Path:
     """
@@ -141,7 +165,7 @@ def run_totalsegmentator(
     ----------
     nifti_input    : path to input CT NIfTI
     output_dir     : directory where masks are written
-    device         : "cpu" | "gpu" | "mps"  (use "cpu" for M3 safety)
+    device         : "cpu" | "gpu" | "mps"  (auto-detected; 'mps' on Apple Silicon)
     license_number : TotalSegmentator academic/commercial licence key,
                      or None to use the TOTALSEG_LICENSE env var
 
@@ -499,7 +523,7 @@ def extract_seeds_from_mask(
 def generate_seeds(
     dicom_dir: str | Path,
     output_json: Optional[str | Path] = None,
-    device: str = "cpu",
+    device: str = _DEFAULT_DEVICE,
     license_number: Optional[str] = None,
     ts_output_dir: Optional[str | Path] = None,
     n_waypoints: int = N_WAYPOINTS,
@@ -512,7 +536,7 @@ def generate_seeds(
     ----------
     dicom_dir      : path to DICOM series directory
     output_json    : where to save seeds JSON (optional — returns dict either way)
-    device         : "cpu" | "gpu" | "mps"  (default "cpu" — safe on all hardware)
+    device         : "cpu" | "gpu" | "mps"  (auto-detected: 'mps' on Apple Silicon, 'gpu' on NVIDIA, 'cpu' fallback)
     license_number : TotalSegmentator academic licence key (or set TOTALSEG_LICENSE env var)
     ts_output_dir  : where to store TotalSegmentator output (default: temp dir)
     n_waypoints    : number of waypoints per vessel (default 3)
@@ -630,12 +654,12 @@ def main():
         help="Path to write seeds JSON (e.g. seeds/patient_1200.json)"
     )
     parser.add_argument(
-        "--device", default="cpu", choices=["cpu", "gpu", "mps"],
+        "--device", default=_DEFAULT_DEVICE, choices=["cpu", "gpu", "mps"],
         help=(
-            "Device for TotalSegmentator inference. "
-            "'cpu' is safest on Apple M3 (slow but reliable). "
-            "'mps' uses Apple Metal GPU (may require torch-mps builds). "
-            "'gpu' uses CUDA (Linux/Windows with NVIDIA GPU)."
+            f"Device for TotalSegmentator inference (auto-detected default: '{_DEFAULT_DEVICE}'). "
+            "'mps' uses Apple Metal GPU on M1/M2/M3/M4 -- 5-10x faster than cpu. "
+            "'gpu' uses CUDA on NVIDIA GPUs. "
+            "'cpu' works everywhere but is slow."
         ),
     )
     parser.add_argument(
