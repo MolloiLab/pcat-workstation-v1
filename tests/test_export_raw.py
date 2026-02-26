@@ -12,7 +12,7 @@ import json
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pipeline.export_raw import export_voi_raw, export_combined_voi_raw, load_voi_raw
+from pipeline.export_raw import export_voi_raw, export_combined_voi_raw, load_voi_raw, export_voi_nifti, export_combined_voi_nifti
 from pipeline.pcat_segment import build_tubular_voi
 
 # Import simple_voi_mask from test_fixtures
@@ -215,3 +215,235 @@ def test_export_voi_raw_custom_dtype(small_volume, simple_voi_mask, small_meta, 
         meta = json.load(f)
     
     assert meta["dtype"] == "int32"
+
+
+# ─────────────────────────────────────────────
+# NIfTI export tests
+# ─────────────────────────────────────────────
+
+def test_export_voi_nifti_creates_file(simple_voi_mask, tmp_output_dir):
+    """Test that export_voi_nifti creates a .nii.gz file."""
+    pytest.importorskip("nibabel")
+    spacing_mm = [1.0, 0.5, 0.5]
+    path = export_voi_nifti(simple_voi_mask, spacing_mm, tmp_output_dir, prefix="test")
+    assert path.exists()
+
+
+def test_export_voi_nifti_returns_path(simple_voi_mask, tmp_output_dir):
+    """Test that returned path is a Path ending with .nii.gz."""
+    pytest.importorskip("nibabel")
+    spacing_mm = [1.0, 0.5, 0.5]
+    path = export_voi_nifti(simple_voi_mask, spacing_mm, tmp_output_dir, prefix="test")
+    assert isinstance(path, Path)
+    assert path.name.endswith(".nii.gz")
+
+
+def test_export_voi_nifti_creates_output_dir(simple_voi_mask, tmp_path):
+    """Test that output directory is created if it does not exist."""
+    pytest.importorskip("nibabel")
+    nested_dir = tmp_path / "nested" / "output"
+    assert not nested_dir.exists()
+    spacing_mm = [1.0, 0.5, 0.5]
+    path = export_voi_nifti(simple_voi_mask, spacing_mm, nested_dir, prefix="test")
+    assert nested_dir.exists()
+    assert path.exists()
+
+
+def test_export_voi_nifti_loadable(simple_voi_mask, tmp_output_dir):
+    """Test that saved .nii.gz can be loaded back with nibabel with matching shape."""
+    nib = pytest.importorskip("nibabel")
+    spacing_mm = [1.0, 0.5, 0.5]
+    path = export_voi_nifti(simple_voi_mask, spacing_mm, tmp_output_dir, prefix="test")
+    img = nib.load(str(path))
+    assert img.shape == simple_voi_mask.shape
+
+
+def test_export_voi_nifti_voxel_count(simple_voi_mask, tmp_output_dir):
+    """Test that the number of positive voxels is preserved after round-trip."""
+    nib = pytest.importorskip("nibabel")
+    spacing_mm = [1.0, 0.5, 0.5]
+    path = export_voi_nifti(simple_voi_mask, spacing_mm, tmp_output_dir, prefix="test")
+    img = nib.load(str(path))
+    data = img.get_fdata()
+    assert int((data > 0).sum()) == int(simple_voi_mask.sum())
+
+
+def test_export_combined_voi_nifti_union(small_volume, simple_centerline, tmp_output_dir):
+    """Test that combined NIfTI mask is the union of individual VOI masks."""
+    nib = pytest.importorskip("nibabel")
+    spacing_mm = [1.0, 0.5, 0.5]
+    radii1 = np.full(len(simple_centerline), 2.0)
+    radii2 = np.full(len(simple_centerline), 1.5)
+    voi1 = build_tubular_voi(small_volume.shape, simple_centerline, spacing_mm, radii1)
+    centerline2 = simple_centerline + np.array([0, 5, 0])
+    voi2 = build_tubular_voi(small_volume.shape, centerline2, spacing_mm, radii2)
+    vessel_masks = {"LAD": voi1, "LCX": voi2}
+    path = export_combined_voi_nifti(vessel_masks, spacing_mm, tmp_output_dir, prefix="combined")
+    assert path.exists()
+    assert path.name.endswith(".nii.gz")
+    img = nib.load(str(path))
+    combined_data = img.get_fdata() > 0
+    expected = voi1 | voi2
+    assert int(combined_data.sum()) == int(expected.sum())
+
+
+def test_export_voi_nifti_missing_nibabel(simple_voi_mask, tmp_output_dir, monkeypatch):
+    """Test that ImportError is raised with helpful message when nibabel is missing."""
+    import builtins
+    real_import = builtins.__import__
+
+    def mock_import(name, *args, **kwargs):
+        if name == "nibabel":
+            raise ImportError("No module named 'nibabel'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", mock_import)
+    spacing_mm = [1.0, 0.5, 0.5]
+    with pytest.raises(ImportError, match="nibabel"):
+        export_voi_nifti(simple_voi_mask, spacing_mm, tmp_output_dir, prefix="test")
+
+def test_export_voi_nifti_creates_file(simple_voi_mask, spacing_mm, tmp_output_dir):
+    """Test that .nii.gz file exists after call."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    output_dir = tmp_output_dir
+    
+    # Export NIfTI file
+    nifti_path = export_voi_nifti(simple_voi_mask, spacing_mm, output_dir, prefix="test")
+    
+    # Check file exists
+    assert nifti_path.exists()
+    assert nifti_path.suffix == ".nii.gz"
+    assert "test_voi.nii.gz" in nifti_path.name
+
+
+def test_export_voi_nifti_returns_path(simple_voi_mask, spacing_mm, tmp_output_dir):
+    """Test that return value is a Path and filename ends with .nii.gz."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    output_dir = tmp_output_dir
+    
+    nifti_path = export_voi_nifti(simple_voi_mask, spacing_mm, output_dir, prefix="test")
+    
+    # Check return type
+    assert isinstance(nifti_path, Path)
+    
+    # Check filename ends with .nii.gz
+    assert nifti_path.suffix == ".nii.gz"
+
+
+def test_export_voi_nifti_creates_output_dir(simple_voi_mask, spacing_mm, tmp_path):
+    """Test that output dir is created if it doesn't exist."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    nested_dir = tmp_path / "nested" / "output"
+    
+    # Directory should not exist initially
+    assert not nested_dir.exists()
+    
+    # Export should create the directory
+    nifti_path = export_voi_nifti(simple_voi_mask, spacing_mm, nested_dir, prefix="test")
+    
+    # Directory should be created
+    assert nested_dir.exists()
+    assert nifti_path.exists()
+
+
+def test_export_voi_nifti_loadable(small_volume, simple_voi_mask, small_meta, tmp_output_dir):
+    """Test that can round-trip via nibabel and get same shape."""
+    import pytest
+    import nibabel as nib
+    
+    nifti_path = export_voi_nifti(simple_voi_mask, small_meta["spacing_mm"], tmp_output_dir, prefix="test")
+    
+    # Load with nibabel
+    img = nib.load(nifti_path)
+    data = img.get_fdata()
+    
+    # Check shape (should be transposed for NIfTI: X,Y,Z)
+    expected_shape = tuple([simple_voi_mask.shape[2], simple_voi_mask.shape[1], simple_voi_mask.shape[0]])
+    assert data.shape == expected_shape
+    
+    # Check dtype
+    assert data.dtype == np.int8
+    
+    # Check VOI voxels are 1, outside are 0
+    assert np.sum(data == 1) == simple_voi_mask.sum()
+    assert np.sum(data == 0) == np.prod(simple_voi_mask.shape) - simple_voi_mask.sum()
+
+
+def test_export_voi_nifti_voxel_count(simple_voi_mask, spacing_mm, tmp_output_dir):
+    """Test that n_voi_voxels in saved file equals mask.sum()."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    output_dir = tmp_output_dir
+    
+    nifti_path = export_voi_nifti(simple_voi_mask, spacing_mm, output_dir, prefix="test")
+    
+    # Load the file and check VOI count
+    import nibabel as nib
+    img = nib.load(nifti_path)
+    data = img.get_fdata()
+    
+    n_voi_voxels = int(simple_voi_mask.sum())
+    actual_voi_voxels = int(np.sum(data == 1))
+    
+    assert actual_voi_voxels == n_voi_voxels
+
+
+def test_export_combined_voi_nifti_union(small_volume, simple_centerline, small_meta, tmp_output_dir):
+    """Test that combined mask is union of two individual masks."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    
+    # Create two different VOIs with different radii
+    radii1 = np.full(len(simple_centerline), 2.0)
+    radii2 = np.full(len(simple_centerline), 1.5)
+    
+    voi1 = build_tubular_voi(small_volume.shape, simple_centerline, spacing_mm, radii1)
+    
+    # Shift centerline for second VOI
+    centerline2 = simple_centerline + np.array([0, 5, 0])  # shift in y direction
+    voi2 = build_tubular_voi(small_volume.shape, centerline2, spacing_mm, radii2)
+    
+    vessel_masks = {"vessel1": voi1, "vessel2": voi2}
+    
+    # Export combined NIfTI
+    nifti_path = export_combined_voi_nifti(vessel_masks, spacing_mm, tmp_output_dir, prefix="combined")
+    
+    # Load and check that it's the union
+    import nibabel as nib
+    img = nib.load(nifti_path)
+    data = img.get_fdata()
+    
+    expected_voi = voi1 | voi2
+    
+    # Check that voxels in expected VOI are 1
+    assert np.sum(data == 1) == expected_voi.sum()
+    
+    # Check that voxels outside union are 0
+    assert np.sum(data == 0) == np.prod(simple_volume.shape) - expected_voi.sum()
+
+
+def test_export_voi_nifti_missing_nibabel(simple_voi_mask, spacing_mm, tmp_output_dir):
+    """Test that missing nibabel raises helpful ImportError."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    output_dir = tmp_output_dir
+    
+    # Simulate nibabel not being available
+    import sys
+    original_import = __builtins__.__import__
+    
+    def mock_import(name, *args, **kwargs):
+        if name == "nibabel":
+            raise ImportError("No module named 'nibabel'")
+        return original_import(name, *args, **kwargs)
+    
+    __builtins__.__import__ = mock_import
+    
+    try:
+        # This should raise ImportError
+        with pytest.raises(ImportError) as exc_info:
+            export_voi_nifti(simple_voi_mask, spacing_mm, output_dir, prefix="test")
+        
+        # Check error message mentions nibabel
+        assert "nibabel" in str(exc_info.value).lower()
+        assert "install" in str(exc_info.value).lower()
+    finally:
+        # Restore original import
+        __builtins__.__import__ = original_import
