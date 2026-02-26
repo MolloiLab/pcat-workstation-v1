@@ -166,6 +166,7 @@ def run_patient(
     vessels: Optional[List[str]] = None,
     skip_3d: bool = False,
     skip_editor: bool = False,
+    skip_cpr_browser: bool = False,
     vesselness_sigmas: Optional[List[float]] = None,
     auto_seeds: bool = False,
     auto_seeds_device: str = _DEFAULT_DEVICE,
@@ -389,6 +390,27 @@ def run_patient(
         if cpr_path:
             results["outputs"].append(str(cpr_path))
 
+        # ── Interactive CPR browser (optional, skipped in headless mode) ──────────
+        if not skip_cpr_browser:
+            print(f"[pipeline] Launching interactive CPR browser for {vessel_name}...")
+            print(f"[pipeline] (close the window or press 'q' to continue the pipeline)")
+            try:
+                import subprocess as _subprocess
+                import sys as _sys
+                _subprocess.run(
+                    [
+                        _sys.executable,
+                        str(Path(__file__).parent / "cpr_browser.py"),
+                        "--dicom",  str(dicom_dir),
+                        "--seeds",  str(seeds_path),
+                        "--vessel", vessel_name,
+                        "--output", str(output_dir),
+                    ],
+                    check=False,
+                )
+            except Exception as _e:
+                print(f"[pipeline] WARNING: CPR browser failed to launch: {_e}")
+
         # Output 4: HU histogram
         hist_path = plot_hu_histogram(
             volume=volume,
@@ -533,6 +555,14 @@ def main():
         ),
     )
     parser.add_argument(
+        "--skip-cpr-browser", action="store_true",
+        dest="skip_cpr_browser",
+        help=(
+            "Skip the interactive CPR browser. Use in headless/CI/batch "
+            "environments where no display is available."
+        ),
+    )
+    parser.add_argument(
         "--project-root", type=str, default=".",
         help="Project root directory (for resolving relative paths in batch mode)"
     )
@@ -592,6 +622,7 @@ def main():
                     vessels=args.vessels,
                     skip_3d=args.skip_3d,
                     skip_editor=args.skip_editor,
+                    skip_cpr_browser=args.skip_cpr_browser,
                     auto_seeds=args.auto_seeds,
                     auto_seeds_device=args.auto_seeds_device,
                     auto_seeds_license=args.auto_seeds_license,
@@ -623,6 +654,7 @@ def main():
             vessels=args.vessels,
             skip_3d=args.skip_3d,
             skip_editor=args.skip_editor,
+            skip_cpr_browser=args.skip_cpr_browser,
             auto_seeds=args.auto_seeds,
             auto_seeds_device=args.auto_seeds_device,
             auto_seeds_license=args.auto_seeds_license,

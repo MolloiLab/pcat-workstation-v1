@@ -183,8 +183,6 @@ def render_cpr_fai(
     """
     Compute and render a Curved Planar Reformat (CPR) — straightened CPR per
     Kanitsar et al. (2002) — of the FAI signal along a coronary artery.
-
-    Algorithm (corrected — matches Horos/OsiriX/Syngo approach):
       1. Compute tangent T[i] at each centerline point (finite difference, mm-normalised).
       2. Build a stable Bishop frame (parallel transport / rotation-minimising frame):
          - Initialise N[0] = any vector perpendicular to T[0].
@@ -203,8 +201,6 @@ def render_cpr_fai(
       6. Display the centre row for the standard straightened CPR:
          x-axis = arc-length along the vessel (index i),
          y-axis = lateral distance from centreline (index k along N).
-
-    FAI voxels (-190 to -30 HU) are coloured yellow->red.
     Non-fat voxels are shown in grayscale (anatomic context).
     ----------
     volume          : (Z, Y, X) HU float32
@@ -222,129 +218,20 @@ def render_cpr_fai(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    sz, sy, sx = spacing_mm
-    vox_size = np.array([sz, sy, sx], dtype=np.float64)  # (z, y, x) mm/voxel
-    shape = np.array(volume.shape, dtype=int)             # (Z, Y, X)
-
     N_pts = len(centerline_ijk)
     if N_pts < 3:
         print(f"[visualize] CPR: too few centerline points for {vessel_name}, skipping.")
         return None
-    # ── Pixel grid dimensions ─────────────────────────────────────────────
-    mean_sp_xy = float(np.mean(vox_size[1:]))   # lateral voxel size (mm)
-    n_width  = max(int(np.ceil(2.0 * width_mm  / mean_sp_xy)), 50)
-    n_height = n_width   # square cross-section plane
-    height_mm = width_mm  # symmetric about centreline
-
-    # ── Centreline in physical mm space [z, y, x] ────────────────────────
-    cl_mm = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]  # (N, 3)
-
-    # ── Tangent vectors (finite differences, mm-normalised) ──────────────
-    T = np.zeros((N_pts, 3), dtype=np.float64)
-    T[1:-1] = cl_mm[2:] - cl_mm[:-2]
-    T[0]    = cl_mm[1]  - cl_mm[0]
-    T[-1]   = cl_mm[-1] - cl_mm[-2]
-    norms   = np.linalg.norm(T, axis=1, keepdims=True) + 1e-12
-    T      /= norms   # unit tangents in mm space
-
-    # ── Bishop frame (parallel transport — rotation-minimising) ─────────
-    # Propagating N by removing the component along the new tangent at each step
-    # ensures continuity and avoids the 180-degree flips of Frenet frames.
-    N_frame = np.zeros((N_pts, 3), dtype=np.float64)  # normal
-    B_frame = np.zeros((N_pts, 3), dtype=np.float64)  # binormal
-
-    # Seed N[0]: pick any vector perpendicular to T[0]
-    ref0 = np.array([0.0, 0.0, 1.0])
-    if abs(np.dot(T[0], ref0)) > 0.9:
-        ref0 = np.array([0.0, 1.0, 0.0])
-    n0 = np.cross(T[0], ref0)
-    n0 /= np.linalg.norm(n0) + 1e-12
-    N_frame[0] = n0
-    B_frame[0] = np.cross(T[0], N_frame[0])
-
-    # Propagate via parallel transport
-    for i in range(1, N_pts):
-        # Project N[i-1] onto the plane perpendicular to T[i]
-        ni = N_frame[i - 1] - np.dot(N_frame[i - 1], T[i]) * T[i]
-        norm_ni = np.linalg.norm(ni)
-        if norm_ni > 1e-8:
-            N_frame[i] = ni / norm_ni
-        else:
-            N_frame[i] = N_frame[i - 1]  # degenerate: keep previous
-        B_frame[i] = np.cross(T[i], N_frame[i])
-        # Re-normalise B (should already be unit, but guard against numerical drift)
-        bnorm = np.linalg.norm(B_frame[i])
-        if bnorm > 1e-8:
-            B_frame[i] /= bnorm
-
-    # ── Slab MIP offsets along tangent ───────────────────────────────────
-    # Sample n_slab planes offset along T and MIP them for depth integration.
-    n_slab = max(1, int(np.ceil(slab_thickness_mm / mean_sp_xy)))
-    if n_slab > 1:
-        slab_offsets_mm = np.linspace(-slab_thickness_mm / 2.0,
-                                       slab_thickness_mm / 2.0,
-                                       n_slab)  # (n_slab,)
-    else:
-        slab_offsets_mm = np.array([0.0])
-
-    # Sampling grids: u along N (width), v along B (height)
-    u_range = np.linspace(-width_mm,  width_mm,  n_width)   # (n_width,)
-    v_range = np.linspace(-height_mm, height_mm, n_height)  # (n_height,)
-    UU, VV = np.meshgrid(u_range, v_range, indexing="xy")  # (n_height, n_width)
-
-    # ── Sample volume at each centreline point ────────────────────────────
-    cpr_volume = np.full((N_pts, n_height, n_width), np.nan, dtype=np.float32)
-
-    for i in range(N_pts):
-        # Base sample points in mm: pts_base_mm[j, k] = cl_mm[i] + u[k]*N[i] + v[j]*B[i]
-        pts_base_mm = (
-            cl_mm[i][np.newaxis, np.newaxis, :]                               # (1,1,3)
-            + UU[:, :, np.newaxis] * N_frame[i][np.newaxis, np.newaxis, :]   # (H,W,3)
-            + VV[:, :, np.newaxis] * B_frame[i][np.newaxis, np.newaxis, :]   # (H,W,3)
-        )  # -> (n_height, n_width, 3)
-
-        # Accumulate MIP over slab planes
-        slab_max = np.full((n_height, n_width), -np.inf, dtype=np.float32)
-
-        for s_off in slab_offsets_mm:
-            pts_mm = pts_base_mm + s_off * T[i][np.newaxis, np.newaxis, :]
-
-            # mm -> voxel coords [z, y, x]
-            pts_vox = pts_mm / vox_size[np.newaxis, np.newaxis, :]  # (H,W,3)
-
-            z_v = pts_vox[:, :, 0].ravel()  # (H*W,)
-            y_v = pts_vox[:, :, 1].ravel()
-            x_v = pts_vox[:, :, 2].ravel()
-            valid = (
-                (z_v >= 0) & (z_v < shape[0] - 1) &
-                (y_v >= 0) & (y_v < shape[1] - 1) &
-                (x_v >= 0) & (x_v < shape[2] - 1)
-            )  # (H*W,)
-            vals = map_coordinates(
-                volume,
-                [z_v, y_v, x_v],
-                order=1,
-                mode="constant",
-                cval=np.nan,
-            ).astype(np.float32)  # (H*W,)
-            vals[~valid] = np.nan
-            vals_2d = vals.reshape(n_height, n_width)
-            better    = vals_2d > slab_max
-            not_nan   = ~np.isnan(vals_2d)
-            slab_max[better & not_nan] = vals_2d[better & not_nan]
-            # Where slab_max is still -inf (all slab planes were NaN), set NaN
-            slab_max[np.isinf(slab_max) & (slab_max < 0)] = np.nan
-
-        cpr_volume[i] = slab_max
-
+    (cpr_volume, N_frame, B_frame, cl_mm, arclengths, n_height, n_width) = _compute_cpr_data(
+        volume, centerline_ijk, spacing_mm,
+        slab_thickness_mm=slab_thickness_mm, width_mm=width_mm,
+    )
     # ── Build the display CPR image ───────────────────────────────────────
     # Straightened CPR: take the centre row (v=0, i.e. B=0 plane).
     # Shape: (N_pts, n_width).  Transpose -> (n_width, N_pts) for imshow so that
     # x-axis = arc-length and y-axis = lateral distance.
     centre_row = n_height // 2
     cpr_image  = cpr_volume[:, centre_row, :]   # (N_pts, n_width)
-
-    # ── Plot: grayscale base + FAI overlay ───────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 14), dpi=150)
     # Grayscale background (soft-tissue window -200...+400 HU)
     gray_img  = np.clip(cpr_image, -200.0, 400.0)
@@ -362,7 +249,6 @@ def render_cpr_fai(
         vmin=0.0, vmax=1.0,
         interpolation="bilinear",
     )
-
     # FAI overlay (-190 to -30 HU only)
     fai_img = np.where(
         (cpr_image >= FAI_HU_MIN) & (cpr_image <= FAI_HU_MAX),
@@ -391,14 +277,11 @@ def render_cpr_fai(
     ax.set_xticklabels([f"{t:.0f}" for t in y_ticks_mm], fontsize=9)
     ax.set_xlabel("Lateral distance from centreline (mm)", fontsize=11)
     # Y-axis: arc-length ticks (mm) — arclengths go top to bottom
-    arclengths  = _compute_arclengths(centerline_ijk, spacing_mm)
     x_ticks_mm  = np.arange(0, arclengths[-1] + 1, 10.0)
     x_tick_idxs = [int(np.argmin(np.abs(arclengths - t))) for t in x_ticks_mm]
     ax.set_yticks(x_tick_idxs)
     ax.set_yticklabels([f"{t:.0f}" for t in x_ticks_mm], fontsize=9)
     ax.set_ylabel("Distance along vessel (mm)", fontsize=11)
-
-    # Centerline marker: vertical line at x = n_width//2 (NOT axhline)
     ax.axvline(n_width // 2, color="white", linewidth=0.8, linestyle="--", alpha=0.5)
     ax.set_title(
         f"CPR — {vessel_name} — FAI overlay (HU {FAI_HU_MIN:.0f} to {FAI_HU_MAX:.0f})\n"
@@ -773,6 +656,143 @@ def _fai_colormap() -> mcolors.LinearSegmentedColormap:
     cmap.set_under(alpha=0.0)
     cmap.set_over(alpha=0.0)
     return cmap
+
+
+def _compute_cpr_data(
+    volume: np.ndarray,
+    centerline_ijk: np.ndarray,
+    spacing_mm: List[float],
+    slab_thickness_mm: float = 3.0,
+    width_mm: float = 25.0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
+    """
+    Compute Bishop-frame CPR volume and associated frame data.
+
+    Used by both render_cpr_fai() (batch/Agg) and cpr_browser.py (interactive/TkAgg).
+
+    Parameters
+    ----------
+    volume          : (Z, Y, X) HU float32
+    centerline_ijk  : (N, 3) centerline voxel indices [z, y, x]
+    spacing_mm      : [sz, sy, sx]
+    slab_thickness_mm : total slab thickness for MIP along tangent (mm)
+    width_mm        : half-width of the CPR / cross-section plane (mm)
+
+    Returns
+    -------
+    cpr_volume  : (N_pts, n_height, n_width) float32 — sampled HU values
+    N_frame     : (N_pts, 3) Bishop normal vectors
+    B_frame     : (N_pts, 3) Bishop binormal vectors
+    cl_mm       : (N_pts, 3) centerline in mm [z, y, x]
+    arclengths  : (N_pts,) cumulative arc-length in mm
+    n_height    : int
+    n_width     : int
+    """
+    sz, sy, sx = spacing_mm
+    vox_size = np.array([sz, sy, sx], dtype=np.float64)  # (z, y, x) mm/voxel
+    shape = np.array(volume.shape, dtype=int)             # (Z, Y, X)
+
+    N_pts = len(centerline_ijk)
+
+    # ── Pixel grid dimensions ──────────────────────────────────────────────
+    mean_sp_xy = float(np.mean(vox_size[1:]))   # lateral voxel size (mm)
+    n_width  = max(int(np.ceil(2.0 * width_mm  / mean_sp_xy)), 50)
+    n_height = n_width   # square cross-section plane
+    height_mm = width_mm  # symmetric about centreline
+
+    # ── Centreline in physical mm space [z, y, x] ──────────────────────────
+    cl_mm = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]  # (N, 3)
+
+    # ── Tangent vectors (finite differences, mm-normalised) ─────────────────
+    T = np.zeros((N_pts, 3), dtype=np.float64)
+    T[1:-1] = cl_mm[2:] - cl_mm[:-2]
+    T[0]    = cl_mm[1]  - cl_mm[0]
+    T[-1]   = cl_mm[-1] - cl_mm[-2]
+    norms   = np.linalg.norm(T, axis=1, keepdims=True) + 1e-12
+    T      /= norms   # unit tangents in mm space
+
+    # ── Bishop frame (parallel transport — rotation-minimising) ────────────
+    N_frame = np.zeros((N_pts, 3), dtype=np.float64)  # normal
+    B_frame = np.zeros((N_pts, 3), dtype=np.float64)  # binormal
+
+    ref0 = np.array([0.0, 0.0, 1.0])
+    if abs(np.dot(T[0], ref0)) > 0.9:
+        ref0 = np.array([0.0, 1.0, 0.0])
+    n0 = np.cross(T[0], ref0)
+    n0 /= np.linalg.norm(n0) + 1e-12
+    N_frame[0] = n0
+    B_frame[0] = np.cross(T[0], N_frame[0])
+
+    for i in range(1, N_pts):
+        ni = N_frame[i - 1] - np.dot(N_frame[i - 1], T[i]) * T[i]
+        norm_ni = np.linalg.norm(ni)
+        if norm_ni > 1e-8:
+            N_frame[i] = ni / norm_ni
+        else:
+            N_frame[i] = N_frame[i - 1]
+        B_frame[i] = np.cross(T[i], N_frame[i])
+        bnorm = np.linalg.norm(B_frame[i])
+        if bnorm > 1e-8:
+            B_frame[i] /= bnorm
+
+    # ── Slab MIP offsets along tangent ───────────────────────────────────
+    n_slab = max(1, int(np.ceil(slab_thickness_mm / mean_sp_xy)))
+    if n_slab > 1:
+        slab_offsets_mm = np.linspace(-slab_thickness_mm / 2.0,
+                                       slab_thickness_mm / 2.0,
+                                       n_slab)
+    else:
+        slab_offsets_mm = np.array([0.0])
+
+    # Sampling grids: u along N (width), v along B (height)
+    u_range = np.linspace(-width_mm,  width_mm,  n_width)   # (n_width,)
+    v_range = np.linspace(-height_mm, height_mm, n_height)  # (n_height,)
+    UU, VV = np.meshgrid(u_range, v_range, indexing="xy")  # (n_height, n_width)
+
+    # ── Sample volume at each centreline point ─────────────────────────────
+    cpr_volume = np.full((N_pts, n_height, n_width), np.nan, dtype=np.float32)
+
+    for i in range(N_pts):
+        pts_base_mm = (
+            cl_mm[i][np.newaxis, np.newaxis, :]                               # (1,1,3)
+            + UU[:, :, np.newaxis] * N_frame[i][np.newaxis, np.newaxis, :]   # (H,W,3)
+            + VV[:, :, np.newaxis] * B_frame[i][np.newaxis, np.newaxis, :]   # (H,W,3)
+        )  # -> (n_height, n_width, 3)
+
+        slab_max = np.full((n_height, n_width), -np.inf, dtype=np.float32)
+
+        for s_off in slab_offsets_mm:
+            pts_mm = pts_base_mm + s_off * T[i][np.newaxis, np.newaxis, :]
+            pts_vox = pts_mm / vox_size[np.newaxis, np.newaxis, :]
+
+            z_v = pts_vox[:, :, 0].ravel()
+            y_v = pts_vox[:, :, 1].ravel()
+            x_v = pts_vox[:, :, 2].ravel()
+            valid = (
+                (z_v >= 0) & (z_v < shape[0] - 1) &
+                (y_v >= 0) & (y_v < shape[1] - 1) &
+                (x_v >= 0) & (x_v < shape[2] - 1)
+            )
+            vals = map_coordinates(
+                volume,
+                [z_v, y_v, x_v],
+                order=1,
+                mode="constant",
+                cval=np.nan,
+            ).astype(np.float32)
+            vals[~valid] = np.nan
+            vals_2d = vals.reshape(n_height, n_width)
+            better    = vals_2d > slab_max
+            not_nan   = ~np.isnan(vals_2d)
+            slab_max[better & not_nan] = vals_2d[better & not_nan]
+            slab_max[np.isinf(slab_max) & (slab_max < 0)] = np.nan
+
+        cpr_volume[i] = slab_max
+
+    # ── Arc-lengths ─────────────────────────────────────────────────────────────
+    arclengths = _compute_arclengths(centerline_ijk, spacing_mm)
+
+    return cpr_volume, N_frame, B_frame, cl_mm, arclengths, n_height, n_width
 
 
 def _compute_arclengths(centerline_ijk: np.ndarray, spacing_mm: List[float]) -> np.ndarray:

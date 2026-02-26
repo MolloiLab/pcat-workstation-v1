@@ -46,21 +46,33 @@ pip install -r requirements.txt
 
 ---
 
-## Quick Start — Fully Automatic Mode (recommended)
+## Quick Start — Clinical QA Workflow (default / recommended)
+
+The standard workflow: auto-generate seeds, run the pipeline, and use the
+interactive review tools to verify each vessel.
 
 ```bash
+# Step 1: Run pipeline with auto-generated seeds
 python pipeline/run_pipeline.py \
     --dicom Rahaf_Patients/1200.2 \
     --output output/patient_1200 \
     --prefix patient1200 \
     --auto-seeds
 ```
-
 This will:
 1. Run TotalSegmentator to locate coronary artery seed points automatically
 2. Extract centerlines, build tubular VOIs, and compute FAI statistics
 3. **For each vessel, open the mandatory VOI Editor** so the radiologist/cardiologist can review and approve the auto-segmented VOI
-4. Export per-vessel `.nii.gz` binary masks and visualization figures
+4. **For each vessel, open the interactive CPR Browser** so you can inspect cross-sections along the vessel
+5. Export per-vessel `.nii.gz` binary masks and visualization figures
+
+```bash
+# Step 2: Review auto-generated seeds (optional but recommended)
+python pipeline/seed_reviewer.py \
+    --dicom Rahaf_Patients/1200.2 \
+    --seeds seeds/1200_2_auto.json \
+    --output seeds/patient_1200_reviewed.json
+```
 
 For processing multiple patients in batch mode:
 
@@ -68,15 +80,29 @@ For processing multiple patients in batch mode:
 python pipeline/run_pipeline.py --batch --auto-seeds
 ```
 
-**Headless / CI environments** (no display available): add `--skip-editor` to bypass the interactive review step:
+**Headless / CI environments** (no display available): add `--skip-editor --skip-cpr-browser` to bypass all interactive review steps:
 
 ```bash
-python pipeline/run_pipeline.py --dicom ... --auto-seeds --skip-editor
+python pipeline/run_pipeline.py --dicom ... --auto-seeds --skip-editor --skip-cpr-browser
 ```
 
 > **Warning:** `--skip-editor` bypasses the mandatory clinical review. Only use this when a separate manual review will be performed after the fact.
 
 ---
+
+## Quick Start — Fully Automatic Mode
+
+```bash
+python pipeline/run_pipeline.py \
+    --dicom Rahaf_Patients/1200.2 \
+    --output output/patient_1200 \
+    --prefix patient1200 \
+    --auto-seeds \
+    --skip-editor \
+    --skip-cpr-browser
+```
+
+This runs the full pipeline without any interactive windows — suitable for batch/headless/CI environments.
 
 ## Manual Seed Workflow
 
@@ -161,7 +187,7 @@ Use this tool after running `--auto-seeds` to verify that TotalSegmentator corre
 ```bash
 python pipeline/seed_reviewer.py \
     --dicom Rahaf_Patients/1200.2 \
-    --seeds seeds/patient_1200_auto.json \
+    --seeds seeds/1200_2_auto.json \
     --output seeds/patient_1200_reviewed.json
 ```
 
@@ -214,7 +240,44 @@ python pipeline/voi_editor.py \
 
 ---
 
-### Step 3: Vessel Wall Editor (`vessel_wall_editor.py`)
+### Step 3: CPR Browser — Interactive Cross-Section Review (`cpr_browser.py`)
+
+After the pipeline generates the CPR images, the CPR browser auto-launches for each vessel. You can also run it standalone:
+
+```bash
+python pipeline/cpr_browser.py \
+    --dicom Rahaf_Patients/1200.2 \
+    --seeds seeds/patient_1200.json \
+    --vessel LAD
+
+# With a reviewed VOI mask:
+python pipeline/cpr_browser.py \
+    --dicom Rahaf_Patients/1200.2 \
+    --seeds seeds/patient_1200.json \
+    --vessel LAD \
+    --voi output/patient_1200/patient1200_LAD_voi_reviewed.npy
+```
+
+**CPR Browser Controls:**
+
+| Key / Action | Effect |
+|---|---|
+| Click CPR panel | Jump needle to that arc-length position |
+| Drag slider | Move needle smoothly along the vessel |
+| `←` / `→` arrow keys | Step needle by one centerline point |
+| `s` | Save PNG snapshot of current view |
+| `q` | Quit |
+
+**Left panel (CPR):** The vessel runs top→bottom (ostium at top). The cyan horizontal line is the "needle" — it marks the position shown in the right panel.
+
+**Right panel (cross-section):** Orthogonal slice through the vessel at the needle position.
+- White circle = vessel lumen boundary (radius from EDT estimate)
+- Yellow dashed circle = PCAT VOI outer boundary (2× lumen radius)
+- Yellow/red overlay = FAI fat voxels (−190 to −30 HU)
+
+---
+
+### Step 4: Vessel Wall Editor (`vessel_wall_editor.py`)
 
 Use this tool after pipeline runs if the radial profile or CPR shows boundary errors:
 
@@ -250,6 +313,7 @@ Each patient run produces the following outputs for each vessel (e.g. `patient12
 | `<prefix>_<VESSEL>_voi_reviewed.npy` | Clinician-reviewed VOI mask (numpy bool array, shape Z×Y×X) |
 | `<prefix>_3d_voi.png` | 3D semi-transparent render of all PCAT VOIs + artery tubes |
 | `<prefix>_<VESSEL>_cpr_fai.png` | Bishop-frame CPR with FAI overlay (vertical orientation) |
+| `cpr_browser_<VESSEL>_<N>mm.png` | Snapshot from interactive CPR browser at arc-length N mm |
 | `<prefix>_<VESSEL>_hu_histogram.png` | HU distribution histogram of PCAT fat voxels |
 | `<prefix>_<VESSEL>_radial_profile.png` | Radial HU profile (1 mm rings, 0–20 mm from vessel wall) |
 | `<prefix>_summary.png` | Summary bar charts: mean FAI HU, fat fraction, voxel count |
@@ -342,6 +406,7 @@ PCAT/
 │   ├── seed_picker.py        # Interactive MPR seed picker GUI
 │   ├── seed_reviewer.py      # Interactive GUI for reviewing auto-generated seeds
 │   ├── voi_editor.py         # Interactive MPR VOI brush editor (mandatory sanity check)
+│   ├── cpr_browser.py        # Interactive CPR browser with live cross-section panel
 │   ├── vessel_wall_editor.py # Interactive GUI for adjusting vessel wall radii
 │   └── run_pipeline.py       # Pipeline orchestrator (single + batch)
 ├── seeds/
@@ -375,6 +440,7 @@ Options:
   --auto-seeds-license    TotalSegmentator academic licence key
   --skip-3d               Skip 3D pyvista rendering (headless environments)
   --skip-editor           Skip the mandatory VOI editor review (headless/CI)
+  --skip-cpr-browser      Skip the interactive CPR browser (headless/CI)
   --batch                 Run all patients from PATIENT_CONFIGS in run_pipeline.py
   --project-root DIR      Base directory for batch mode relative paths (default: .)
 ```
@@ -392,5 +458,6 @@ Options:
 | Short centerline (< 10 mm) | Waypoints too far from vessel or bad seed | Add more waypoints in seed_picker |
 | Sub-voxel radius warning | Vessel too small relative to DICOM resolution | Review in vessel_wall_editor, increase min radius |
 | VOI editor won't open | Running on a headless server (no display) | Use `--skip-editor` flag and review outputs manually |
+| CPR browser won't open | Running headless or TkAgg not available | Use `--skip-cpr-browser`; run `cpr_browser.py` separately with display |
 | `.nii.gz` export fails | nibabel not installed | `pip install nibabel` (already in requirements.txt) |
 | VOI editor axes upside-down | Using seed_picker instead of voi_editor | voi_editor uses corrected orientation; seed_picker has known head-down issue |
