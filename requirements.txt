@@ -1,0 +1,10 @@
+pydicom>=3.0.0
+SimpleITK>=2.3.0
+numpy>=1.26.0
+scipy>=1.13.0
+scikit-image>=0.24.0
+matplotlib>=3.9.0
+pyvista>=0.44.0
+vtk>=9.3.0
+tqdm>=4.66.0
+click>=8.1.0

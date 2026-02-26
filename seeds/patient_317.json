@@ -1,0 +1,29 @@
+{
+  "_instructions": {
+    "how_to_fill": "Run: python pipeline/seed_picker.py --dicom Rahaf_Patients/317.6 --output seeds/patient_317.json",
+    "coordinate_system": "IJK voxel indices [z, y, x] in the loaded volume (0-indexed)",
+    "volume_shape": [399, 512, 512],
+    "spacing_mm": [0.5, 0.3388, 0.3388],
+    "notes": [
+      "ostium_ijk: the origin point where the vessel branches off the aorta/LM",
+      "waypoints_ijk: 1–3 intermediate points guiding the path down the vessel (proximal segment only)",
+      "seed_picker.py will populate this file automatically — do not edit manually unless correcting"
+    ]
+  },
+  "LAD": {
+    "ostium_ijk": [null, null, null],
+    "waypoints_ijk": [],
+    "segment_length_mm": 40.0
+  },
+  "LCX": {
+    "ostium_ijk": [null, null, null],
+    "waypoints_ijk": [],
+    "segment_length_mm": 40.0
+  },
+  "RCA": {
+    "ostium_ijk": [null, null, null],
+    "waypoints_ijk": [],
+    "segment_start_mm": 10.0,
+    "segment_length_mm": 50.0
+  }
+}
