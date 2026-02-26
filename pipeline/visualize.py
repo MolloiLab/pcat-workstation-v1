@@ -88,22 +88,26 @@ def render_3d_voi(
     sz, sy, sx = spacing_mm
 
     # ── Build pyvista ImageData grid ──────────────────────────────────────
+    Z, Y, X = volume.shape
     pv_grid = pv.ImageData()
-    pv_grid.dimensions = np.array(volume.shape)[::-1] + 1  # (X+1, Y+1, Z+1)
+    pv_grid.dimensions = (X+1, Y+1, Z+1)
     pv_grid.spacing = (sx, sy, sz)   # pyvista uses (x, y, z) order
     pv_grid.origin = (0.0, 0.0, 0.0)
 
-    # Attach VOI mask as scalar
-    pv_grid.cell_data["voi"] = voi_mask.flatten(order="F").astype(np.uint8)
+    # Cell data: one value per cell = one per voxel
+    # Cells are indexed [x, y, z] in VTK/pyvista order
+    # voi_mask is [z, y, x] numpy order
+    # To match: transpose to (X, Y, Z) then flatten in C order
+    voi_vtk = voi_mask.transpose(2, 1, 0).flatten(order="C").astype(np.uint8)  # (X*Y*Z,)
+    pv_grid.cell_data["voi"] = voi_vtk
 
     # Extract VOI surface via threshold
     voi_surface = pv_grid.threshold(0.5, scalars="voi").extract_surface(algorithm="dataset_surface")
 
     # ── Attach HU scalars on the VOI surface ────────────────────────────
     # Clip to fat range for coloring
-    pv_grid.cell_data["hu"] = np.clip(
-        volume.flatten(order="F"), FAI_HU_MIN, FAI_HU_MAX
-    ).astype(np.float32)
+    hu_vtk = np.clip(volume.transpose(2, 1, 0).flatten(order="C"), FAI_HU_MIN, FAI_HU_MAX).astype(np.float32)
+    pv_grid.cell_data["hu"] = hu_vtk
     voi_fat_cells = pv_grid.threshold(0.5, scalars="voi")
     hu_scalars = voi_fat_cells.cell_data["hu"]
 
@@ -142,7 +146,11 @@ def render_3d_voi(
 
     plotter.add_legend(face="rectangle", bcolor=[0.1, 0.1, 0.1], size=(0.18, 0.12))
     plotter.add_text(f"PCAT 3D — {prefix}", font_size=12, position="upper_edge")
-    plotter.camera_position = "iso"
+    # Set camera to view from diagonal with better perspective
+    # Get center of VOI bounding box
+    center = np.array(pv_grid.center)
+    cx, cy, cz = center
+    plotter.camera_position = [(cx*2, cy*2, cz*3), (cx, cy, cz), (0,0,1)]
 
     if interactive:
         plotter.show()
@@ -337,17 +345,19 @@ def render_cpr_fai(
     cpr_image  = cpr_volume[:, centre_row, :]   # (N_pts, n_width)
 
     # ── Plot: grayscale base + FAI overlay ───────────────────────────────
-    fig, ax = plt.subplots(figsize=(14, 6), dpi=150)
+    fig, ax = plt.subplots(figsize=(7, 14), dpi=150)
     # Grayscale background (soft-tissue window -200...+400 HU)
     gray_img  = np.clip(cpr_image, -200.0, 400.0)
     gray_norm = (gray_img + 200.0) / 600.0
     gray_norm = np.nan_to_num(gray_norm, nan=0.0)
-    # imshow: rows=y (n_width = lateral), cols=x (N_pts = arc-length)
-    # cpr_image is (N_pts, n_width) -> transpose to (n_width, N_pts)
+    # Display WITHOUT transpose: shape (N_pts, n_width)
+    # origin="upper" → row 0 (arc-length=0 = ostium) at top
+    # x-axis = lateral distance (n_width columns)
+    # y-axis = arc-length (N_pts rows, top=0mm=ostium, bottom=40mm=distal)
     ax.imshow(
-        gray_norm.T,
+        gray_norm,
         aspect="auto",
-        origin="lower",
+        origin="upper",
         cmap="gray",
         vmin=0.0, vmax=1.0,
         interpolation="bilinear",
@@ -361,9 +371,9 @@ def render_cpr_fai(
     )
     fai_cmap = _fai_colormap()
     fai_im = ax.imshow(
-        fai_img.T,
+        fai_img,
         aspect="auto",
-        origin="lower",
+        origin="upper",
         cmap=fai_cmap,
         vmin=FAI_HU_MIN,
         vmax=FAI_HU_MAX,
@@ -374,25 +384,25 @@ def render_cpr_fai(
     cbar = plt.colorbar(fai_im, ax=ax, fraction=0.025, pad=0.01)
     cbar.set_label("HU (FAI)", fontsize=10)
     cbar.set_ticks([FAI_HU_MIN, -150, -100, -50, FAI_HU_MAX])
-    # X-axis: arc-length ticks (mm)
+    # X-axis: lateral distance ticks (mm)
+    y_ticks_mm  = np.arange(-width_mm, width_mm + 1, 5.0)
+    y_tick_idxs = ((y_ticks_mm + width_mm) / (2 * width_mm) * (n_width - 1)).astype(int)
+    ax.set_xticks(np.clip(y_tick_idxs, 0, n_width - 1))
+    ax.set_xticklabels([f"{t:.0f}" for t in y_ticks_mm], fontsize=9)
+    ax.set_xlabel("Lateral distance from centreline (mm)", fontsize=11)
+    # Y-axis: arc-length ticks (mm) — arclengths go top to bottom
     arclengths  = _compute_arclengths(centerline_ijk, spacing_mm)
     x_ticks_mm  = np.arange(0, arclengths[-1] + 1, 10.0)
     x_tick_idxs = [int(np.argmin(np.abs(arclengths - t))) for t in x_ticks_mm]
-    ax.set_xticks(x_tick_idxs)
-    ax.set_xticklabels([f"{t:.0f}" for t in x_ticks_mm], fontsize=9)
-    ax.set_xlabel("Distance along vessel (mm)", fontsize=11)
-    # Y-axis: lateral distance ticks (mm)
-    y_ticks_mm  = np.arange(-width_mm, width_mm + 1, 5.0)
-    y_tick_idxs = ((y_ticks_mm + width_mm) / (2 * width_mm) * (n_width - 1)).astype(int)
-    ax.set_yticks(np.clip(y_tick_idxs, 0, n_width - 1))
-    ax.set_yticklabels([f"{t:.0f}" for t in y_ticks_mm], fontsize=9)
-    ax.set_ylabel("Lateral distance from centreline (mm)", fontsize=11)
+    ax.set_yticks(x_tick_idxs)
+    ax.set_yticklabels([f"{t:.0f}" for t in x_ticks_mm], fontsize=9)
+    ax.set_ylabel("Distance along vessel (mm)", fontsize=11)
 
-    # Dashed line at the vessel centreline (y=0)
-    ax.axhline(n_width // 2, color="white", linewidth=0.8, linestyle="--", alpha=0.5)
+    # Centerline marker: vertical line at x = n_width//2 (NOT axhline)
+    ax.axvline(n_width // 2, color="white", linewidth=0.8, linestyle="--", alpha=0.5)
     ax.set_title(
         f"CPR — {vessel_name} — FAI overlay (HU {FAI_HU_MIN:.0f} to {FAI_HU_MAX:.0f})\n"
-        f"Bishop-frame straightened CPR  |  slab MIP {slab_thickness_mm:.0f} mm  |  width ±{width_mm:.0f} mm",
+        f"Bishop-frame straightened CPR (vessel top→bottom, ostium at top)  |  slab MIP {slab_thickness_mm:.0f} mm  |  width ±{width_mm:.0f} mm",
         fontsize=11,
         fontweight="bold",
     )
@@ -610,9 +620,7 @@ def plot_radial_hu_profile(
     colors = plt.cm.RdYlGn_r(np.linspace(0.0, 1.0, len(ring_centers)))
 
     # Shade the background with FAI range context
-    ax1.axhspan(FAI_HU_MIN, FAI_HU_MAX, alpha=0.08, color="orange")
-    ax1.axhline(FAI_HU_MIN, color="orange", linestyle="--", linewidth=0.8, alpha=0.6)
-    ax1.axhline(FAI_HU_MAX, color="red", linestyle="--", linewidth=0.8, alpha=0.6)
+    ax1.axhspan(-90, -65, alpha=0.12, color="lightblue", label="Typical FAI range (-90 to -65 HU)")
     ax1.axhline(FAI_RISK_THRESHOLD, color="#CC2200", linewidth=1.6, linestyle=":",
                alpha=0.9, label=f"FAI risk cut-off ({FAI_RISK_THRESHOLD} HU)")
 
@@ -642,7 +650,7 @@ def plot_radial_hu_profile(
     ax1.set_xlabel("Distance from coronary outer wall (mm)", fontsize=11)
     ax1.set_ylabel("Mean HU (FAI range)", fontsize=11)
     ax1.set_xlim(0, max_radial_mm)
-    ax1.set_ylim(FAI_HU_MIN - 20, FAI_HU_MAX + 20)
+    ax1.set_ylim(-105, -50)   # covers -90 to -65 with margin, matches paper
     ax1.set_title(f"Radial HU Profile — {vessel_name}", fontsize=12, fontweight="bold")
     ax1.legend(fontsize=9)
     ax1.grid(alpha=0.3, linewidth=0.5)

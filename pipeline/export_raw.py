@@ -23,9 +23,81 @@ import numpy as np
 
 
 # ─────────────────────────────────────────────
+# New NIfTI export function
+# ─────────────────────────────────────────────
+
+def export_voi_nifti(
+    voi_mask: np.ndarray,
+    spacing_mm: list,
+    output_dir: str | Path,
+    prefix: str = "pcat",
+) -> Path:
+    """
+    Save binary VOI mask as NIfTI .nii.gz file.
+
+    Parameters
+    ----------
+    voi_mask    : (Z, Y, X) bool array — True inside pericoronary VOI
+    spacing_mm  : [sz, sy, sx] voxel spacing in mm
+    output_dir  : directory to write file
+    prefix      : filename prefix
+
+    Returns
+    -------
+    Path to saved .nii.gz file
+    """
+    try:
+        import nibabel as nib
+    except ImportError:
+        raise ImportError(
+            "nibabel is required for NIfTI export. Install with: pip install nibabel"
+        )
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    sz, sy, sx = spacing_mm
+
+    # NIfTI affine: diagonal voxel spacing (RAS convention, mm)
+    # Array is (Z, Y, X) but NIfTI expects (X, Y, Z) — transpose
+    data = voi_mask.astype(np.int8)  # 1=VOI, 0=outside
+
+    # Affine: scale matrix (sz, sy, sx diagonal)
+    # We keep the numpy (Z,Y,X) order — nibabel handles it via the affine
+    affine = np.diag([sx, sy, sz, 1.0])
+
+    img = nib.Nifti1Image(data, affine=affine)
+    img.header.set_zooms((sx, sy, sz))
+    img.header['qform_code'] = 1
+    img.header['sform_code'] = 1
+
+    out_path = output_dir / f"{prefix}_voi.nii.gz"
+    nib.save(img, str(out_path))
+
+    n_voi = int(voi_mask.sum())
+    print(f"[export] NIfTI VOI saved: {out_path.name}  ({n_voi:,} VOI voxels)")
+    return out_path
+
+
+def export_combined_voi_nifti(
+    vessel_masks: dict,
+    spacing_mm: list,
+    output_dir: str | Path,
+    prefix: str = "pcat_all",
+) -> Path:
+    """Export union of all vessel VOI masks as a single NIfTI file."""
+    shapes = [m.shape for m in vessel_masks.values()]
+    combined = np.zeros(shapes[0], dtype=bool)
+    for mask in vessel_masks.values():
+        combined |= mask
+    return export_voi_nifti(combined, spacing_mm, output_dir, prefix)
+
+
+# ─────────────────────────────────────────────
 # Main export function
 # ─────────────────────────────────────────────
 
+# Deprecated: use export_voi_nifti() instead
 def export_voi_raw(
     volume: np.ndarray,
     voi_mask: np.ndarray,
@@ -109,6 +181,7 @@ def export_voi_raw(
 # Multi-vessel combined export
 # ─────────────────────────────────────────────
 
+# Deprecated: use export_combined_voi_nifti() instead
 def export_combined_voi_raw(
     volume: np.ndarray,
     vessel_masks: Dict[str, np.ndarray],

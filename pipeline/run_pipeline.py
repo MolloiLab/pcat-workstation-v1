@@ -63,7 +63,7 @@ from pipeline.pcat_segment import (
     apply_fai_filter,
     compute_pcat_stats,
 )
-from pipeline.export_raw import export_voi_raw, export_combined_voi_raw
+from pipeline.export_raw import export_voi_raw, export_combined_voi_raw, export_voi_nifti, export_combined_voi_nifti
 from pipeline.visualize import (
     render_3d_voi,
     render_cpr_fai,
@@ -71,6 +71,8 @@ from pipeline.visualize import (
     plot_radial_hu_profile,
     plot_summary,
 )
+
+from pipeline.voi_editor import launch_voi_editor
 
 from pipeline.auto_seeds import _detect_best_device as _auto_detect_device
 
@@ -325,6 +327,18 @@ def run_patient(
         vessel_voi_masks[vessel_name] = voi_mask
         print(f"[pipeline] VOI voxels: {voi_mask.sum():,}")
 
+        # ── Mandatory sanity check: let the clinician review/edit VOI ────
+        print(f"[pipeline] MANDATORY SANITY CHECK: launching VOI editor for {vessel_name}...")
+        voi_npy_path = output_dir / f"{prefix}_{vessel_name}_voi_reviewed.npy"
+        voi_mask = launch_voi_editor(
+            volume=volume,
+            voi_mask=voi_mask,
+            vessel_name=vessel_name,
+            output_path=voi_npy_path,
+            spacing_mm=spacing_mm,
+        )
+        print(f"[pipeline] VOI review complete. Voxels: {voi_mask.sum():,}")
+
         # ── Compute stats ──────────────────────────────────────────────
         stats = compute_pcat_stats(volume, voi_mask, vessel_name)
         vessel_stats[vessel_name] = stats
@@ -342,15 +356,14 @@ def run_patient(
             f"(mean HU {stats['hu_mean']:.1f} vs threshold {threshold} HU)"
         )
 
-        # ── Export per-vessel .raw ─────────────────────────────────────
-        raw_path, json_path = export_voi_raw(
-            volume=volume,
+        # ── Export per-vessel NIfTI ─────────────────────────────────────
+        nii_path = export_voi_nifti(
             voi_mask=voi_mask,
-            meta=meta,
+            spacing_mm=spacing_mm,
             output_dir=output_dir,
             prefix=f"{prefix}_{vessel_name}",
         )
-        results["outputs"].extend([str(raw_path), str(json_path)])
+        results["outputs"].append(str(nii_path))
 
         # ── Visualizations ─────────────────────────────────────────────
         print(f"[pipeline] Generating {vessel_name} visualizations...")
@@ -395,15 +408,14 @@ def run_patient(
 
     # ── Step 4: Combined VOI export ───────────────────────────────────────
     if vessel_voi_masks:
-        print("\n[pipeline] Exporting combined all-vessel VOI .raw...")
-        combined_raw, combined_json = export_combined_voi_raw(
-            volume=volume,
+        print("\n[pipeline] Exporting combined all-vessel VOI NIfTI...")
+        combined_nii = export_combined_voi_nifti(
             vessel_masks=vessel_voi_masks,
-            meta=meta,
+            spacing_mm=spacing_mm,
             output_dir=output_dir,
             prefix=f"{prefix}_combined",
         )
-        results["outputs"].extend([str(combined_raw), str(combined_json)])
+        results["outputs"].append(str(combined_nii))
 
     # ── Step 5: 3D visualization ──────────────────────────────────────────
     if vessel_voi_masks and not skip_3d:
