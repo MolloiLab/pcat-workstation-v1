@@ -1,41 +1,73 @@
 # PCAT — Pericoronary Adipose Tissue Segmentation Pipeline
 
-Automated Python pipeline for PCAT/PVAT segmentation from CCTA images.  
-Extracts proximal coronary artery segments (LAD, LCX, RCA), builds tubular volumes of interest (VOI), and produces 5 analysis outputs per patient per vessel.
+Automated Python pipeline for PCAT/PVAT segmentation from CCTA (Cardiac CT Angiography) images.
 
 ---
 
 ## Overview
 
-| Step | Module | Description |
+| Module | Step | Description |
 |---|---|---|
-| 1 | `dicom_loader.py` | Load DICOM series → (Z,Y,X) HU volume |
-| 2 | `seed_picker.py` | Interactive seed picker (ostium + waypoints) |
-| 3 | `centerline.py` | Frangi vesselness + Dijkstra centerline extraction |
-| 4 | `pcat_segment.py` | Tubular VOI construction + PCAT HU filtering |
-| 5 | `export_raw.py` | Export full-res VOI as `.raw` + metadata JSON |
-| 6 | `visualize.py` | 5 analysis outputs (3D, CPR, histogram, radial profile) |
-| 7 | `run_pipeline.py` | Orchestrates all steps for single or batch patients |
+| `dicom_loader.py` | 1 | Load DICOM series → (Z,Y,X) HU volume |
+| `seed_picker.py` | 2 | Interactive seed picker (ostium + waypoints) |
+| `seed_reviewer.py` | 2 | Interactive GUI for reviewing and correcting auto-generated seeds with clinical warning badges |
+| `centerline.py` | 3 | Frangi vesselness + Dijkstra centerline extraction |
+| `pcat_segment.py` | 4 | Tubular VOI construction + PCAT HU filtering |
+| `vessel_wall_editor.py` | 5 | Interactive GUI for reviewing/adjusting inner and outer vessel wall radii |
+| `export_raw.py` | 6 | Export full-res VOI as `.raw` + metadata JSON |
+| `visualize.py` | 7 | 5 analysis outputs (3D, CPR, histogram, radial profile) |
+| `run_pipeline.py` | 8 | Orchestrates all steps for single or batch patients |
+
+---
+
+## Clinical Background
+
+PCAT refers to the fat tissue immediately surrounding coronary arteries. The Fat Attenuation Index (FAI) is calculated as the mean Hounsfield Unit (HU) value of PCAT fat voxels within the -190 to -30 HU range. A mean FAI value greater than -70.1 HU indicates high cardiovascular inflammation risk, as established by Oikonomou et al. in the 2018 CRISP-CT trial. This pipeline segments the proximal 40mm of the LAD and LCX arteries and the proximal 10-50mm of the RCA for PCAT analysis.
 
 ---
 
 ## Requirements
 
 - Python 3.10+
-- [Anaconda](https://www.anaconda.com/) base environment (recommended)
+- `pip install -r requirements.txt`
+- TotalSegmentator license (free for research use, requires `totalseg_setup_weights`)
+- pyvista (optional, for 3D render functionality)
 
-Install dependencies:
+---
+
+## Installation
+
 ```bash
+git clone https://github.com/your-repo/PCAT.git
+cd PCAT
 pip install -r requirements.txt
 ```
 
 ---
 
-## Quickstart
+## Quick Start — Fully Automatic Mode (recommended)
 
-### Step 1 — Pick Seeds (one-time per patient)
+```bash
+python pipeline/run_pipeline.py \
+    --dicom Rahaf_Patients/1200.2 \
+    --output output/patient_1200 \
+    --prefix patient1200 \
+    --auto-seeds
+```
 
-Launch the interactive seed picker to identify the ostium and 1–3 waypoints per vessel:
+The `--auto-seeds` flag runs TotalSegmentator automatically, eliminating the need for manual seed picking. For processing multiple patients in batch mode:
+
+```bash
+python pipeline/run_pipeline.py --batch --auto-seeds
+```
+
+---
+
+## Manual Seed Workflow
+
+### Step A: Seed Picker
+
+Launch the interactive seed picker to identify vessel ostia and waypoints:
 
 ```bash
 python pipeline/seed_picker.py \
@@ -48,7 +80,7 @@ python pipeline/seed_picker.py \
 | Key / Action | Effect |
 |---|---|
 | `1` / `2` / `3` | Switch active vessel: LAD / LCX / RCA |
-| Left-click on any view | Add seed point (ostium first, then waypoints) |
+| Left-click | Add seed point (ostium first, then waypoints) |
 | `u` | Undo last point |
 | `r` | Reset current vessel |
 | `s` | Save and continue |
@@ -63,9 +95,8 @@ python pipeline/seed_picker.py --dicom Rahaf_Patients/2.1    --output seeds/pati
 python pipeline/seed_picker.py --dicom Rahaf_Patients/317.6  --output seeds/patient_317.json
 ```
 
-### Step 2 — Run the Pipeline
+### Step B: Run Pipeline with Seeds
 
-**Single patient:**
 ```bash
 python pipeline/run_pipeline.py \
     --dicom Rahaf_Patients/1200.2 \
@@ -74,26 +105,112 @@ python pipeline/run_pipeline.py \
     --prefix patient1200
 ```
 
-**All 3 patients (batch):**
-```bash
-python pipeline/run_pipeline.py --batch
+---
+
+## Changing Input DICOM Data
+
+For processing new patient data:
+
+**Single patient:** Simply change the `--dicom` path to point to any DICOM series folder.
+
+**Batch mode:** Edit the `BATCH_CONFIGS` list in `run_pipeline.py` (lines ~82-105). Each entry requires:
+- `dicom_dir`: Path to DICOM folder
+- `seeds_file`: Path to seed JSON file
+- `output_dir`: Output directory path
+- `prefix`: Output file prefix
+
+Example of adding a fourth patient:
+```python
+BATCH_CONFIGS = [
+    {"dicom_dir": "Rahaf_Patients/1200.2", "seeds_file": "seeds/patient_1200.json", "output_dir": "output/patient_1200", "prefix": "patient1200"},
+    {"dicom_dir": "Rahaf_Patients/2.1", "seeds_file": "seeds/patient_2.json", "output_dir": "output/patient_2", "prefix": "patient2"},
+    {"dicom_dir": "Rahaf_Patients/317.6", "seeds_file": "seeds/patient_317.json", "output_dir": "output/patient_317", "prefix": "patient317"},
+    {"dicom_dir": "New_Patients/patient4", "seeds_file": "seeds/patient4.json", "output_dir": "output/patient4", "prefix": "patient4"},
+]
 ```
+
+**Custom spacing:** Spacing is auto-detected from DICOM tags. No manual configuration needed.
+
+**Non-Siemens data:** If `RescaleIntercept` is not `-8192`, the `dicom_loader.py` handles it automatically via standard DICOM tags.
 
 ---
 
-## Outputs
+## Clinical QA Workflow — Manual Review Tools
 
-Each patient run produces the following in `output/<patient_id>/`:
+### Seed Reviewer (`seed_reviewer.py`)
 
-| File | Description |
-|---|---|
-| `<prefix>_<VESSEL>_3d_voi.png` | **Output 1** — 3D render of tubular VOI (unfiltered HU) |
-| `<prefix>_<VESSEL>_voi.raw` | **Output 2** — Full-res VOI volume (int16, same dims as CCTA) |
-| `<prefix>_<VESSEL>_voi_meta.json` | Metadata for the `.raw` file (shape, spacing, dtype) |
-| `<prefix>_<VESSEL>_cpr_fai.png` | **Output 3** — Curved Planar Reformat (CPR) with FAI colormap |
-| `<prefix>_<VESSEL>_hu_histogram.png` | **Output 4** — HU distribution histogram (FAI range highlighted) |
-| `<prefix>_<VESSEL>_radial_profile.png` | **Output 5** — Radial HU profile (1mm rings, 0–20mm from vessel wall) |
-| `<prefix>_<VESSEL>_summary.png` | Summary 4-panel figure (all outputs combined) |
+Use this tool after running `--auto-seeds` to verify that TotalSegmentator correctly identified all vessels:
+
+```bash
+python pipeline/seed_reviewer.py \
+    --dicom Rahaf_Patients/1200.2 \
+    --seeds seeds/patient_1200_auto.json \
+    --output seeds/patient_1200_reviewed.json
+```
+
+**Color badges indicate confidence level:**
+- ✓ GREEN = high confidence, no issues detected
+- ⚠ YELLOW = review recommended (fallback detection, sub-voxel radius, etc.)
+- ✗ RED = critical issue: missing vessel, must correct before running pipeline
+
+**Keyboard controls:**
+- `1` / `2` / `3` = Switch between LAD, LCX, RCA
+- Click = Move existing seed or add new seed
+- `d` = Delete waypoint
+- `c` = Clear warning badges
+- `s` = Save and exit
+
+### Vessel Wall Editor (`vessel_wall_editor.py`)
+
+Use this tool after pipeline runs if the radial profile or CPR shows boundary errors:
+
+```bash
+python pipeline/vessel_wall_editor.py \
+    --dicom Rahaf_Patients/1200.2 \
+    --seeds seeds/patient_1200.json \
+    --vessel LAD \
+    --output output/patient_1200/LAD_wall_override.json
+```
+
+The interface shows:
+- Red circle = lumen (inner vessel wall)
+- Yellow circle = PCAT boundary (outer vessel wall)
+
+**Keyboard controls:**
+- Arrow keys = Navigate between vessel points
+- `[` / `]` = Decrease/increase inner radius
+- `{` / `}` = Decrease/increase outer radius
+- `a` / `A` = Apply current radii to all points
+- `s` = Save and exit
+
+---
+
+## Output Files
+
+Each patient run produces the following outputs for each vessel:
+
+| File | Output # | Description |
+|------|----------|-------------|
+| `<prefix>_3d_voi.png` | 1 | 3D semi-transparent render of all PCAT VOIs + artery tubes |
+| `<prefix>_<VESSEL>_voi.raw` | 2 | Binary VOI mask (int16, same dims as input CCTA) |
+| `<prefix>_<VESSEL>_voi_meta.json` | 2 | .raw metadata: shape, spacing, dtype, voxel count |
+| `<prefix>_<VESSEL>_cpr_fai.png` | 3 | Bishop-frame straightened CPR with FAI overlay |
+| `<prefix>_<VESSEL>_hu_histogram.png` | 4 | HU distribution histogram of PCAT fat voxels |
+| `<prefix>_<VESSEL>_radial_profile.png` | 5 | Radial HU profile (1mm rings, 0-20mm from vessel wall) |
+| `<prefix>_summary.png` | — | Summary bar charts: mean FAI HU, fat fraction, voxel count |
+| `<prefix>_stats.json` | — | Per-vessel FAI statistics (JSON) |
+
+---
+
+## Clinical Interpretation Guide
+
+**CPR image (Output 3):** The x-axis represents arc-length along the vessel in millimeters. The y-axis shows lateral distance in millimeters. Yellow and red regions indicate fat tissue. The dashed white line marks the vessel centerline. Focus your review on the pericoronary fat signal above and below the centerline.
+
+**HU Histogram (Output 4):** Orange bars represent fat voxels. The vertical dashed line at -70.1 HU indicates the FAI risk threshold. If the mean FAI HU is greater than -70.1, this suggests elevated cardiovascular inflammation risk.
+
+**Radial Profile (Output 5):** Each point represents the mean HU of fat voxels at that specific distance from the vessel wall. This visualization helps determine if inflammation is close to the vessel (0-5mm) or located farther away.
+
+**FAI Risk Threshold:** The clinical threshold is -70.1 HU (Oikonomou 2018). Values above this threshold (less negative) indicate higher pericoronary inflammation.
 
 ---
 
@@ -164,6 +281,8 @@ PCAT/
 │   ├── export_raw.py        # .raw export (full-resolution)
 │   ├── visualize.py         # All 5 analysis output figures
 │   ├── seed_picker.py       # Interactive MPR seed picker GUI
+│   ├── seed_reviewer.py     # Interactive GUI for reviewing auto-generated seeds
+│   ├── vessel_wall_editor.py # Interactive GUI for adjusting vessel wall radii
 │   └── run_pipeline.py      # Pipeline orchestrator (single + batch)
 ├── seeds/
 │   ├── patient_1200.json    # Seed coords for patient 1200 (fill via seed_picker)
@@ -178,8 +297,13 @@ PCAT/
 
 ---
 
-## Notes
+## Troubleshooting
 
-- DICOM data and output files are gitignored — only code and seed templates are tracked.
-- 3D renders require `pyvista`: `pip install pyvista`. If not installed, Output 1 is skipped with a warning.
-- The pipeline is designed to run on the Anaconda base environment with Python 3.12.
+| Problem | Likely Cause | Fix |
+|---------|--------------|-----|
+| "too few centerline points" | Seed outside vessel, or vessel too short | Re-run seed_picker or seed_reviewer |
+| NaN mean HU in stats JSON | No fat voxels (-190 to -30 HU) found in VOI | Check VOI size; vessel may be calcified |
+| "only N vessels found" warning | TotalSegmentator couldn't find all 3 vessels | Run seed_reviewer, manually fix missing vessel |
+| 3D render skipped | pyvista not installed | pip install pyvista |
+| Short centerline (< 10mm) | Waypoints too far from vessel or bad seed | Add more waypoints in seed_picker |
+| Sub-voxel radius warning | Vessel too small relative to DICOM resolution | Review in vessel_wall_editor, increase min radius |

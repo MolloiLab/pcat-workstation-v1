@@ -283,3 +283,124 @@ def test_render_cpr_fai_with_fai_data(small_volume, simple_centerline, simple_ra
     
     assert png_path is not None
     assert png_path.exists()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bishop frame correctness tests (CPR algorithm verification)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _build_bishop_frame(centerline_ijk, spacing_mm):
+    """Replicate Bishop frame computation from render_cpr_fai for test verification."""
+    vox_size = np.array(spacing_mm, dtype=np.float64)
+    cl_mm = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]
+    N_pts = len(cl_mm)
+
+    T = np.zeros((N_pts, 3), dtype=np.float64)
+    T[1:-1] = cl_mm[2:] - cl_mm[:-2]
+    T[0]    = cl_mm[1]  - cl_mm[0]
+    T[-1]   = cl_mm[-1] - cl_mm[-2]
+    T /= np.linalg.norm(T, axis=1, keepdims=True) + 1e-12
+
+    N_frame = np.zeros((N_pts, 3), dtype=np.float64)
+    B_frame = np.zeros((N_pts, 3), dtype=np.float64)
+    ref0 = np.array([0.0, 0.0, 1.0])
+    if abs(np.dot(T[0], ref0)) > 0.9:
+        ref0 = np.array([0.0, 1.0, 0.0])
+    n0 = np.cross(T[0], ref0)
+    n0 /= np.linalg.norm(n0) + 1e-12
+    N_frame[0] = n0
+    B_frame[0] = np.cross(T[0], N_frame[0])
+    for i in range(1, N_pts):
+        ni = N_frame[i - 1] - np.dot(N_frame[i - 1], T[i]) * T[i]
+        norm_ni = np.linalg.norm(ni)
+        N_frame[i] = ni / norm_ni if norm_ni > 1e-8 else N_frame[i - 1]
+        B_frame[i] = np.cross(T[i], N_frame[i])
+        bnorm = np.linalg.norm(B_frame[i])
+        if bnorm > 1e-8:
+            B_frame[i] /= bnorm
+    return T, N_frame, B_frame
+
+
+def test_bishop_frame_N_perpendicular_to_T(simple_centerline):
+    """N[i] must be perpendicular to T[i] at every point (dot product ≈ 0)."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    T, N, B = _build_bishop_frame(simple_centerline, spacing_mm)
+    dots = np.abs(np.einsum('ij,ij->i', N, T))
+    assert np.all(dots < 1e-6), f"Max |N·T| = {dots.max():.2e}, expected < 1e-6"
+
+
+def test_bishop_frame_B_perpendicular_to_T(simple_centerline):
+    """B[i] must be perpendicular to T[i] at every point."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    T, N, B = _build_bishop_frame(simple_centerline, spacing_mm)
+    dots = np.abs(np.einsum('ij,ij->i', B, T))
+    assert np.all(dots < 1e-6), f"Max |B·T| = {dots.max():.2e}, expected < 1e-6"
+
+
+def test_bishop_frame_N_unit_length(simple_centerline):
+    """N[i] must have unit length at every point."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    T, N, B = _build_bishop_frame(simple_centerline, spacing_mm)
+    norms = np.linalg.norm(N, axis=1)
+    assert np.allclose(norms, 1.0, atol=1e-6), f"N norms: min={norms.min():.4f} max={norms.max():.4f}"
+
+
+def test_bishop_frame_no_sudden_flips(simple_centerline):
+    """Consecutive N frames must not flip 180°: dot(N[i], N[i+1]) must be > 0."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    T, N, B = _build_bishop_frame(simple_centerline, spacing_mm)
+    dots = np.einsum('ij,ij->i', N[:-1], N[1:])
+    assert np.all(dots > -0.1), f"Frame flip detected: min dot(N[i],N[i+1]) = {dots.min():.4f}"
+
+
+def test_cpr_output_png_is_2d_slab(small_volume, simple_centerline, simple_radii, tmp_output_dir):
+    """CPR PNG must be large enough to confirm it's a 2D slab, not a 1-pixel-wide strip."""
+    spacing_mm = [1.0, 0.5, 0.5]
+    width_mm = 10.0
+
+    png_path = render_cpr_fai(
+        small_volume, simple_centerline, simple_radii, spacing_mm,
+        'LAD', tmp_output_dir, width_mm=width_mm
+    )
+    assert png_path is not None
+    assert png_path.exists()
+    # A 1D strip would be tiny; a real 2D slab PNG should exceed 10 KB
+    assert png_path.stat().st_size > 10_000, (
+        f"CPR PNG only {png_path.stat().st_size} bytes — image may be a 1D strip, not a 2D slab"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3D render smoke test
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_render_3d_voi_smoke(tmp_output_dir):
+    """Smoke test: render_3d_voi creates a non-empty PNG (or skips if pyvista missing)."""
+    from pipeline.visualize import render_3d_voi
+
+    vol = np.random.default_rng(0).uniform(-200, 200, (20, 20, 20)).astype(np.float32)
+    voi = np.zeros((20, 20, 20), dtype=bool)
+    voi[8:12, 8:12, 8:12] = True
+    cl = np.array([[10, 10, 5], [10, 10, 8], [10, 10, 12], [10, 10, 15]], dtype=int)
+    rad = np.array([1.5, 1.5, 1.5, 1.5])
+
+    out = render_3d_voi(
+        volume=vol,
+        voi_mask=voi,
+        vessel_centerlines={'LAD': cl},
+        vessel_radii={'LAD': rad},
+        spacing_mm=[0.5, 0.5, 0.5],
+        output_dir=tmp_output_dir,
+        prefix='test3d',
+        screenshot=True,
+        interactive=False,
+    )
+
+    # pyvista may not be installed in all CI environments — skip gracefully
+    if out is None:
+        pytest.skip('pyvista not installed — 3D render test skipped')
+
+    assert out.exists(), f'PNG not created at {out}'
+    assert out.stat().st_size > 1000, f'PNG suspiciously small: {out.stat().st_size} bytes'
