@@ -242,10 +242,12 @@ class SeedReviewer:
         return self.volume[self.z_slice, :, :]   # (Y, X)
     
     def _coronal_slice(self):
-        return self.volume[:, self.y_slice, :]   # (Z, X) — flip Z so superior is up
+        # FIX: Flip Z axis so superior (head) is at top
+        return np.flipud(self.volume[:, self.y_slice, :])   # (Z, X) flipped
     
     def _sagittal_slice(self):
-        return self.volume[:, :, self.x_slice]   # (Z, Y)
+        # FIX: Flip Z axis so superior (head) is at top
+        return np.flipud(self.volume[:, :, self.x_slice])   # (Z, Y) flipped
     
     # ─────────────────────────────────────────
     # Drawing helpers
@@ -264,12 +266,13 @@ class SeedReviewer:
             self.ax_axial.axhline(self.y_slice, **kw),
             self.ax_axial.axvline(self.x_slice, **kw),
         ]
+        # FIX: Use flipped Z coordinate for coronal/sagittal crosshairs
         self._ch_co = [
-            self.ax_coronal.axhline(self.z_slice, **kw),
+            self.ax_coronal.axhline(self.shape[0] - 1 - self.z_slice, **kw),
             self.ax_coronal.axvline(self.x_slice, **kw),
         ]
         self._ch_sa = [
-            self.ax_sagittal.axhline(self.z_slice, **kw),
+            self.ax_sagittal.axhline(self.shape[0] - 1 - self.z_slice, **kw),
             self.ax_sagittal.axvline(self.y_slice, **kw),
         ]
     
@@ -311,18 +314,20 @@ class SeedReviewer:
                         ax_o_x.append(px); ax_o_y.append(py)
                     else:
                         ax_w_x.append(px); ax_w_y.append(py)
-                # Coronal: within 2 slices of Y
+                # Coronal: within 2 slices of Y — map pz to flipped pixel row
                 if abs(py - Y) <= 2:
+                    flipped_pz = self.shape[0] - 1 - pz
                     if ptype == "ostium":
-                        co_o_x.append(px); co_o_z.append(pz)
+                        co_o_x.append(px); co_o_z.append(flipped_pz)
                     else:
-                        co_w_x.append(px); co_w_z.append(pz)
-                # Sagittal: within 2 slices of X
+                        co_w_x.append(px); co_w_z.append(flipped_pz)
+                # Sagittal: within 2 slices of X — map pz to flipped pixel row
                 if abs(px - X) <= 2:
+                    flipped_pz = self.shape[0] - 1 - pz
                     if ptype == "ostium":
-                        sa_o_y.append(py); sa_o_z.append(pz)
+                        sa_o_y.append(py); sa_o_z.append(flipped_pz)
                     else:
-                        sa_w_y.append(py); sa_w_z.append(pz)
+                        sa_w_y.append(py); sa_w_z.append(flipped_pz)
             
             self.scatter_axial[v]["ostium"].set_data(ax_o_x, ax_o_y)
             self.scatter_axial[v]["waypoints"].set_data(ax_w_x, ax_w_y)
@@ -526,6 +531,12 @@ class SeedReviewer:
             z, y, x = self.z_slice, iy, ix
             self.active_view = "axial"
         elif ax == self.ax_coronal:
+            # FIX: Un-flip Z coordinate since coronal view is flipped
+            actual_z = self.shape[0] - 1 - iy
+            z, y, x = actual_z, self.y_slice, ix
+            self.active_view = "coronal"
+            self.z_slice = max(0, min(z, self.shape[0] - 1))
+        elif ax == self.ax_coronal_dummy:
             z, y, x = iy, self.y_slice, ix
             self.active_view = "coronal"
             self.z_slice = max(0, min(z, self.shape[0] - 1))
@@ -581,6 +592,12 @@ class SeedReviewer:
         if ax == self.ax_axial:
             z, y, x = self.z_slice, iy, ix
         elif ax == self.ax_coronal:
+            # FIX: Un-flip Z coordinate since coronal view is flipped
+            actual_z = self.shape[0] - 1 - iy
+            z, y, x = actual_z, self.y_slice, ix
+            self.active_view = "coronal"
+            self.z_slice = max(0, min(z, self.shape[0] - 1))
+        elif ax == self.ax_coronal_dummy:
             z, y, x = iy, self.y_slice, ix
         elif ax == self.ax_sagittal:
             z, y, x = iy, ix, self.x_slice
