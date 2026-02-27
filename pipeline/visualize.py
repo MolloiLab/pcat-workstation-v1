@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.ticker import MaxNLocator
 from scipy.ndimage import distance_transform_edt, map_coordinates
+from scipy.interpolate import CubicSpline
 
 # Guard pyvista import — it may not be installed in all environments
 try:
@@ -782,7 +783,7 @@ def render_cpr_dicom(
         
         # Apply FAI colormap
         fai_colors = fai_cmap(fai_resized)[:, :, :3]  # Take RGB, drop alpha
-        fai_alpha = fai_resized * 0.85  # Alpha channel
+        fai_alpha = (fai_resized > 0).astype(np.float32) * 0.85  # Binary fat mask: non-fat pixels get alpha=0
         
         # Alpha blend with background
         for c in range(3):  # RGB channels
@@ -950,33 +951,24 @@ def render_cpr_native(
         return []
     vox_size = np.array([sz, sy, sx], dtype=np.float64)  # (z, y, x)
     shape = np.array(volume.shape, dtype=int)             # (Z, Y, X)
-    cl_mm = centerline_ijk.astype(np.float64) * vox_size  # (N, 3)
-    # ── Resample centerline to output_size evenly spaced arc-length steps ────
-    diffs = np.diff(cl_mm, axis=0)                  # (N-1, 3)
-    seg_len = np.linalg.norm(diffs, axis=1)         # (N-1,)
-    cumlen = np.concatenate([[0.0], np.cumsum(seg_len)])  # (N,)
-    total_len = cumlen[-1]
+    cl_mm_raw = centerline_ijk.astype(np.float64) * vox_size  # (N, 3)
+    # ── Fit cubic spline through raw centerline (Horos-style Bézier equivalent) ──
+    # Replaces linear np.interp + Gaussian smoothing with analytically smooth curve.
+    diffs_raw = np.diff(cl_mm_raw, axis=0)
+    seg_len_raw = np.linalg.norm(diffs_raw, axis=1)
+    cumlen_raw = np.concatenate([[0.0], np.cumsum(seg_len_raw)])
+    total_len = cumlen_raw[-1]
     if total_len < 1.0:
         print(f"[visualize] CPR native: degenerate centerline ({total_len:.2f}mm) for {vessel_name}, skipping.")
         return []
-    s_out = np.linspace(0.0, total_len, output_size)  # (W,) arc-length samples
-    cl_rs = np.stack([
-        np.interp(s_out, cumlen, cl_mm[:, dim]) for dim in range(3)
-    ], axis=1)  # (W, 3) -- resampled centerline, one entry per column
-
-    # ── Per-column tangent vectors (gradient, normalised) ────────────────────
-    # Smooth the resampled centerline before tangent estimation to eliminate
-    # staircase artifacts when the input centerline is sparse.
-    from scipy.ndimage import gaussian_filter1d as _gf1d
-    # Smooth over 5mm of arc-length regardless of input centerline quality.
-    # This removes waypoint kinks and staircase artifacts while preserving vessel curvature.
-    # Each column spans total_len/output_size mm, so sigma_mm maps to sigma_cols columns.
-    sigma_mm = 5.0
-    sigma_cols = max(4, int(sigma_mm / (total_len / output_size)))
-    cl_rs_smooth = np.stack([_gf1d(cl_rs[:, d], sigma=sigma_cols) for d in range(3)], axis=1)
-    tangents = np.gradient(cl_rs_smooth, axis=0)  # (W, 3)
-    norms = np.linalg.norm(tangents, axis=1, keepdims=True) + 1e-12
-    tangents /= norms  # (W, 3), unit tangents
+    cs_native = CubicSpline(cumlen_raw, cl_mm_raw, bc_type='not-a-knot')
+    # Resample at exactly output_size uniform arc-length steps
+    s_out = np.linspace(0.0, total_len, output_size)  # (W,)
+    cl_rs = cs_native(s_out)                           # (W, 3) smooth positions
+    # Analytic tangents from spline first derivative — smooth, no finite-difference noise
+    T_raw_native = cs_native(s_out, 1)                 # (W, 3)
+    norms_native = np.linalg.norm(T_raw_native, axis=1, keepdims=True) + 1e-12
+    tangents = T_raw_native / norms_native             # (W, 3), unit tangents
 
     # ── Build a stable perpendicular frame at each column ────────────────────
     # Use Bishop (parallel-transport) framing to avoid discontinuous flips.
@@ -1025,7 +1017,7 @@ def render_cpr_native(
         slab_norms = np.linalg.norm(slab_dirs, axis=1, keepdims=True) + 1e-12
         slab_dirs /= slab_norms  # (W, 3) unit
 
-        slab_offsets = np.linspace(-slab_thickness_mm, slab_thickness_mm, n_slab)
+        slab_offsets = np.linspace(-slab_thickness_mm / 2.0, slab_thickness_mm / 2.0, n_slab)
         projection = np.full((output_size, output_size), -np.inf, dtype=np.float32)
         for s_off in slab_offsets:
             pts_mm = (
@@ -1478,24 +1470,42 @@ def _compute_cpr_data(
     vox_size = np.array([sz, sy, sx], dtype=np.float64)  # (z, y, x) mm/voxel
     shape = np.array(volume.shape, dtype=int)             # (Z, Y, X)
 
-    N_pts = len(centerline_ijk)
-
     # ── Pixel grid dimensions ──────────────────────────────────────────────
     mean_sp_xy = float(np.mean(vox_size[1:]))   # lateral voxel size (mm)
     n_width  = max(int(np.ceil(2.0 * width_mm  / mean_sp_xy)), 50)
     n_height = n_width   # square cross-section plane
     height_mm = width_mm  # symmetric about centreline
 
-    # ── Centreline in physical mm space [z, y, x] ──────────────────────────
-    cl_mm = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]  # (N, 3)
-
-    # ── Tangent vectors (finite differences, mm-normalised) ─────────────────
-    T = np.zeros((N_pts, 3), dtype=np.float64)
-    T[1:-1] = cl_mm[2:] - cl_mm[:-2]
-    T[0]    = cl_mm[1]  - cl_mm[0]
-    T[-1]   = cl_mm[-1] - cl_mm[-2]
-    norms   = np.linalg.norm(T, axis=1, keepdims=True) + 1e-12
-    T      /= norms   # unit tangents in mm space
+    # ── Fit cubic spline through raw centerline (Horos-style Bézier equivalent) ─
+    # Convert to mm, then fit CubicSpline for smooth sub-voxel positions and
+    # analytically exact tangents — eliminates staircase from integer voxel indices.
+    cl_mm_raw = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]  # (N, 3)
+    diffs_raw = np.diff(cl_mm_raw, axis=0)
+    seg_lens_raw = np.linalg.norm(diffs_raw, axis=1)
+    s_raw = np.concatenate([[0.0], np.cumsum(seg_lens_raw)])  # arc-length param
+    total_len = s_raw[-1]
+    if total_len < 1.0:
+        # Degenerate: fall back to raw centerline
+        cl_mm = cl_mm_raw
+        N_pts = len(centerline_ijk)
+        T = np.zeros((N_pts, 3), dtype=np.float64)
+        T[1:-1] = cl_mm[2:] - cl_mm[:-2]
+        T[0]    = cl_mm[1]  - cl_mm[0]
+        T[-1]   = cl_mm[-1] - cl_mm[-2]
+        norms   = np.linalg.norm(T, axis=1, keepdims=True) + 1e-12
+        T      /= norms
+        s_uniform = s_raw
+    else:
+        cs = CubicSpline(s_raw, cl_mm_raw, bc_type='not-a-knot')
+        # Resample at uniform ~0.5mm steps (matches Horos CPRStraightenedOperation sample spacing)
+        ds = 0.5  # mm per step — sub-voxel resolution
+        N_pts = max(int(np.ceil(total_len / ds)), len(centerline_ijk))
+        s_uniform = np.linspace(0.0, total_len, N_pts)
+        cl_mm = cs(s_uniform)          # (N_pts, 3) smooth sub-voxel positions
+        # Analytic tangents from spline first derivative — no staircase noise
+        T_raw = cs(s_uniform, 1)       # (N_pts, 3)
+        norms = np.linalg.norm(T_raw, axis=1, keepdims=True) + 1e-12
+        T = T_raw / norms              # unit tangents
 
     # ── Bishop frame (parallel transport — rotation-minimising) ────────────
     N_frame = np.zeros((N_pts, 3), dtype=np.float64)  # normal
@@ -1576,7 +1586,7 @@ def _compute_cpr_data(
         cpr_volume[i] = slab_max
 
     # ── Arc-lengths ─────────────────────────────────────────────────────────────
-    arclengths = _compute_arclengths(centerline_ijk, spacing_mm)
+    arclengths = s_uniform  # already computed from spline resampling above
 
     return cpr_volume, N_frame, B_frame, cl_mm, arclengths, n_height, n_width
 
