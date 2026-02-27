@@ -181,9 +181,9 @@ Jerman et al. showed OOF significantly outperforms Frangi in vessel segmentation
 
 | Method | Speed | Hardware | Accuracy |
 |---|---|---|---|
-| Frangi + Dijkstra (our pipeline, full volume) | 10+ min | CPU | High |
-| Frangi + Dijkstra (our pipeline, ROI-cropped) | ~10–30s | CPU M3 | High |
-| **Frangi + Fast Marching (our pipeline, upgraded)** | **~5–15s** | **CPU M3** | **High** |
+| ~~Frangi + Dijkstra (full volume)~~ | ~~10+ min~~ | CPU | — (replaced) |
+| ~~Frangi + Dijkstra (ROI-cropped)~~ | ~~10–30s~~ | CPU M3 | — (replaced) |
+| **Frangi + Fast Marching (current pipeline, ROI-cropped)** | **~10–30s** | **CPU M3** | **High** |
 | OOF + Fast Marching | ~3–8s | CPU | High |
 | Lightweight CNN (Liu 2025) | 8–15s | GPU | ~95% |
 | Deep RL (Zhang 2025) | seconds | GPU | 95.7% OV |
@@ -202,17 +202,16 @@ Jerman et al. showed OOF significantly outperforms Frangi in vessel segmentation
 ### Where We Differ from Commercial Tools
 | Gap | Commercial Solution | Our Current Approach | Upgrade Path |
 |---|---|---|---|
-| Seed picking | Automatic (DL ostia detection) | **Manual** (seed_picker.py) | CNN landmark detection (future) |
-| Centerline algo | Fast Marching or DL | Dijkstra | ✅ **Upgraded to Fast Marching** |
+| Seed picking | Automatic (DL ostia detection) | TotalSegmentator (auto) + optional manual review | CNN landmark detection (future) |
+| Centerline algo | Fast Marching or DL | ✅ **Fast Marching** (scikit-fmm, ROI-cropped ~10–30 s) | Deep RL / CNN (future) |
 | Vessel enhancement | OOF or DL | Frangi (ROI-cropped) | OOF (needs C++ binding) |
 | Radiomic features | 93 features (XGBoost) | Mean HU, std, percentiles | pyradiomics integration (future) |
-| Processing speed | ~208s/case (Siemens) | ~30–60s/case (estimated) | Within range after upgrades |
-
+| Processing speed | ~208s/case (Siemens) | ~30–60s/case | Within range of commercial tools |
 ### Recommended Future Upgrades (Priority Order)
-1. **Replace Dijkstra with fast marching** — done in this release (scikit-fmm)
-2. **Add pyradiomics** for 93-feature radiomic extraction per VOI
-3. **Automatic ostia detection** — atlas-based (3D Slicer VMTK) or CNN landmark
-4. **OOF filter** — implement via `morphsnakes` approximation or C++ binding
+1. **Add pyradiomics** for 93-feature radiomic extraction per VOI
+2. **Automatic ostia detection** — CNN landmark or atlas-based (3D Slicer VMTK)
+3. **OOF filter** — implement via `morphsnakes` approximation or C++ binding
+4. **Deep learning centerline** — replace Frangi+FMM with trained vessel tracker for calcified/artifact cases
 
 ---
 
