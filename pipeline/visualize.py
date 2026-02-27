@@ -195,6 +195,186 @@ def render_3d_voi(
     return out_path
 
 
+def render_3d_voi_dicom(
+    volume: np.ndarray,
+    voi_mask: np.ndarray,
+    vessel_centerlines: Dict[str, np.ndarray],
+    vessel_radii: Dict[str, np.ndarray],
+    spacing_mm: List[float],
+    output_dir: str | Path,
+    prefix: str = "pcat",
+    n_frames: int = 37,
+    frame_size: int = 529,
+) -> Optional[Path]:
+    """
+    Render n_frames rotating VRT frames of the PCAT VOI + artery centerlines as
+    DICOM Secondary Capture files (RGB 529×529, series desc 'Coronaries VRT LAO Cran').
+    Returns path to the output DICOM directory, or None if pyvista unavailable.
+
+    Parameters
+    ----------
+    volume            : (Z, Y, X) HU float32
+    voi_mask          : (Z, Y, X) bool — PCAT VOI union
+    vessel_centerlines: {vessel_name: (N, 3) voxel ijk}
+    vessel_radii      : {vessel_name: (N,) radii mm}
+    spacing_mm        : [sz, sy, sx]
+    output_dir        : base output directory (DICOM subfolder is created inside)
+    prefix            : filename prefix
+    n_frames          : number of rotation frames (default 37, full 360°)
+    frame_size        : pixel dimension of each frame (default 529)
+
+    Returns
+    -------
+    Path to the DICOM folder, or None if pyvista unavailable
+    """
+    if not HAS_PYVISTA:
+        print("[visualize] Skipping 3D DICOM render: pyvista not installed.")
+        return None
+
+    try:
+        import pydicom
+        from pydicom.dataset import Dataset, FileMetaDataset
+        from pydicom.uid import generate_uid, ExplicitVRLittleEndian
+        SecondaryCaptureImageStorage = "1.2.840.10008.5.1.4.1.1.7"
+    except ImportError:
+        print("[visualize] Skipping 3D DICOM render: pydicom not installed. pip install pydicom")
+        return None
+
+    output_dir = Path(output_dir)
+    dicom_dir = output_dir / f"{prefix}_3d_dicom"
+    dicom_dir.mkdir(parents=True, exist_ok=True)
+
+    sz, sy, sx = spacing_mm
+    VESSEL_COLOR = (224 / 255, 204 / 255, 173 / 255)
+
+    # ── Build pyvista scene (same as render_3d_voi) ──────────────────────
+    Z, Y, X = volume.shape
+    pv_grid = pv.ImageData()
+    pv_grid.dimensions = (X + 1, Y + 1, Z + 1)
+    pv_grid.spacing = (sx, sy, sz)
+    pv_grid.origin = (0.0, 0.0, 0.0)
+
+    voi_vtk = voi_mask.transpose(2, 1, 0).flatten(order="C").astype(np.uint8)
+    pv_grid.cell_data["voi"] = voi_vtk
+
+    hu_vtk = np.clip(volume.transpose(2, 1, 0).flatten(order="C"), FAI_HU_MIN, FAI_HU_MAX).astype(np.float32)
+    pv_grid.cell_data["hu"] = hu_vtk
+    voi_fat_cells = pv_grid.threshold(0.5, scalars="voi")
+
+    tube_meshes = []
+    for vessel_name, cl_ijk in vessel_centerlines.items():
+        if len(cl_ijk) < 2:
+            continue
+        pts_xyz = cl_ijk[:, [2, 1, 0]] * np.array([sx, sy, sz])
+        spline = pv.Spline(pts_xyz, n_points=max(len(pts_xyz) * 2, 100))
+        mean_r = float(np.mean(vessel_radii.get(vessel_name, [1.5])))
+        tube = spline.tube(radius=max(mean_r * 3.0, 2.0))
+        tube_meshes.append((vessel_name, tube, VESSEL_COLOR))
+
+    # ── LAO-Cranial base camera parameters ───────────────────────────────
+    center = np.array(pv_grid.center)
+    cx, cy, cz = center
+    bounds = pv_grid.bounds
+    diag = np.sqrt(
+        (bounds[1] - bounds[0]) ** 2 + (bounds[3] - bounds[2]) ** 2 + (bounds[5] - bounds[4]) ** 2
+    )
+    cam_dist = diag * 1.4
+    cran_rad = np.radians(25)
+
+    fai_cmap = _fai_colormap()
+    series_uid = generate_uid()
+    series_number = 900
+
+    print(f"[visualize] Rendering {n_frames} 3D DICOM frames to {dicom_dir.name}/")
+
+    for frame_idx in range(n_frames):
+        # Rotate camera 360° around the cranial (Z) axis
+        angle_offset = np.radians(360.0 * frame_idx / n_frames)
+        base_az = np.radians(30) + angle_offset   # LAO base + rotation offset
+
+        cam_x = cam_dist * np.sin(base_az) * np.cos(cran_rad)
+        cam_y = -cam_dist * np.cos(base_az) * np.cos(cran_rad)
+        cam_z = cam_dist * np.sin(cran_rad)
+        cam_pos = (cx + cam_x, cy + cam_y, cz + cam_z)
+
+        plotter = pv.Plotter(off_screen=True, window_size=(frame_size, frame_size))
+        plotter.set_background("black")
+        pv.set_plot_theme("dark")
+
+        plotter.add_mesh(
+            voi_fat_cells.extract_surface(algorithm="dataset_surface"),
+            scalars="hu",
+            clim=[FAI_HU_MIN, FAI_HU_MAX],
+            cmap=fai_cmap,
+            opacity=0.25,
+            show_scalar_bar=False,
+        )
+
+        for _vname, tube, color in tube_meshes:
+            plotter.add_mesh(
+                tube,
+                color=color,
+                opacity=1.0,
+                smooth_shading=True,
+                specular=0.6,
+                specular_power=40,
+                ambient=0.15,
+                diffuse=0.85,
+            )
+
+        plotter.camera_position = [cam_pos, (cx, cy, cz), (0.0, 0.0, 1.0)]
+        img = plotter.screenshot(return_img=True)  # numpy RGB uint8
+        plotter.close()
+
+        # Resize to exactly frame_size x frame_size if needed
+        if img.shape[0] != frame_size or img.shape[1] != frame_size:
+            try:
+                from PIL import Image as _PILImage
+                pil_img = _PILImage.fromarray(img).resize((frame_size, frame_size), _PILImage.LANCZOS)
+                img = np.array(pil_img)
+            except ImportError:
+                # PIL not available: use numpy slicing (crop/pad) as fallback
+                import warnings as _w
+                _w.warn("PIL not installed; 3D DICOM frames may not be exactly frame_size px. pip install Pillow")
+
+        # ── Write DICOM Secondary Capture ────────────────────────────────
+        file_meta = FileMetaDataset()
+        file_meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+        sop_uid = generate_uid()
+        file_meta.MediaStorageSOPInstanceUID = sop_uid
+        file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+
+        ds = Dataset()
+        ds.file_meta = file_meta
+        ds.is_implicit_VR = False
+        ds.is_little_endian = True
+        ds.SOPClassUID = SecondaryCaptureImageStorage
+        ds.SOPInstanceUID = sop_uid
+        ds.Modality = "OT"
+        ds.SeriesInstanceUID = series_uid
+        ds.SeriesNumber = series_number
+        ds.InstanceNumber = frame_idx + 1
+        ds.SeriesDescription = "Coronaries VRT LAO Cran"
+        ds.ImageType = ["DERIVED", "SECONDARY", "AXIAL", "VRT"]
+        ds.BurnedInAnnotation = "NO"
+        ds.Rows = frame_size
+        ds.Columns = frame_size
+        ds.SamplesPerPixel = 3
+        ds.PhotometricInterpretation = "RGB"
+        ds.BitsAllocated = 8
+        ds.BitsStored = 8
+        ds.HighBit = 7
+        ds.PixelRepresentation = 0
+        ds.PlanarConfiguration = 0  # RGB interleaved
+        ds.PixelData = img.astype(np.uint8).tobytes()
+
+        dcm_path = dicom_dir / f"{prefix}_3d_frame{frame_idx + 1:03d}.dcm"
+        pydicom.dcmwrite(str(dcm_path), ds, write_like_original=False)
+
+    print(f"[visualize] 3D DICOM series written: {n_frames} frames -> {dicom_dir}")
+    return dicom_dir
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Output 3: Curved Planar Reformat (CPR) with FAI colormap
 # ─────────────────────────────────────────────────────────────────────────────
@@ -606,6 +786,9 @@ def render_cpr_native(
             better = vals_2d > projection
             projection[better] = vals_2d[better]
         projection[np.isinf(projection) & (projection < 0)] = np.nan
+        # Transpose so arc-length is rows (top=ostium, bottom=distal end)
+        # and radial offset is columns — vessel runs top-to-bottom like Syngo.via
+        projection = projection.T  # (output_size arc-length, output_size radial)
 
         # ── HU windowing ─────────────────────────────────────────────────────
         HU_lo = window_center - window_width / 2.0

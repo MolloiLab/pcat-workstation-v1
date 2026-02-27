@@ -66,6 +66,7 @@ from pipeline.pcat_segment import (
 from pipeline.export_raw import export_voi_raw, export_combined_voi_raw, export_voi_nifti, export_combined_voi_nifti
 from pipeline.visualize import (
     render_3d_voi,
+    render_3d_voi_dicom,
     render_cpr_fai,
     render_cpr_grayscale,
     render_cpr_native,
@@ -317,7 +318,7 @@ def run_patient(
             continue
 
         print(f"[pipeline] Proximal segment [{seg_start}–{seg_start+seg_length}mm]: {len(centerline)} points")
-        vessel_centerlines[vessel_name] = centerline
+        vessel_centerlines[vessel_name] = centerline_full
 
         # ── Radius estimation ──────────────────────────────────────────
         print(f"[pipeline] Estimating {vessel_name} vessel radii...")
@@ -384,12 +385,13 @@ def run_patient(
         # Output 3: CPR FAI
         cpr_path = render_cpr_fai(
             volume=volume,
-            centerline_ijk=centerline,
+            centerline_ijk=centerline_full,
             radii_mm=radii_mm,
             spacing_mm=spacing_mm,
             vessel_name=vessel_name,
             output_dir=output_dir,
             prefix=prefix,
+            width_mm=40.0,
         )
         if cpr_path:
             results["outputs"].append(str(cpr_path))
@@ -397,12 +399,13 @@ def run_patient(
         # Output 3b: CPR grayscale multi-rotation
         cpr_gray_path = render_cpr_grayscale(
             volume=volume,
-            centerline_ijk=centerline,
+            centerline_ijk=centerline_full,
             radii_mm=radii_mm,
             spacing_mm=spacing_mm,
             vessel_name=vessel_name,
             output_dir=output_dir,
             prefix=prefix,
+            width_mm=40.0,
         )
         if cpr_gray_path:
             results["outputs"].append(str(cpr_gray_path))
@@ -410,12 +413,13 @@ def run_patient(
         # Output 3c: CPR native (Syngo.via-style curved CPR, 3 rotation views)
         cpr_native_paths = render_cpr_native(
             volume=volume,
-            centerline_ijk=centerline,
+            centerline_ijk=centerline_full,
             radii_mm=radii_mm,
             spacing_mm=spacing_mm,
             vessel_name=vessel_name,
             output_dir=output_dir,
             prefix=prefix,
+            half_width_mm=40.0,
         )
         for p in (cpr_native_paths or []):
             results["outputs"].append(str(p))
@@ -486,7 +490,7 @@ def run_patient(
         for m in vessel_voi_masks.values():
             combined_mask |= m
 
-        render_3d_voi(
+        render_3d_voi_dicom(
             volume=volume,
             voi_mask=combined_mask,
             vessel_centerlines=vessel_centerlines,
@@ -494,8 +498,6 @@ def run_patient(
             spacing_mm=spacing_mm,
             output_dir=output_dir,
             prefix=prefix,
-            screenshot=True,
-            interactive=False,
         )
 
     # ── Step 6: Summary chart ─────────────────────────────────────────────
