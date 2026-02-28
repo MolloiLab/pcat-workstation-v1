@@ -94,6 +94,67 @@ def build_tubular_voi(
     return voi_full
 
 
+def build_pcat_voi(
+    volume_shape: Tuple[int, int, int],
+    centerline_ijk: np.ndarray,
+    spacing_mm: List[float],
+    radii_mm: np.ndarray,
+    pcat_scale: float = 3.0,
+    inner_margin_mm: float = 0.0,
+) -> np.ndarray:
+    """
+    Build a binary PCAT VOI mask using an outer boundary of pcat_scale × mean_radius.
+    The standard PCAT definition uses diameter × 3 (i.e. outer = 3× vessel radius).
+
+    Parameters
+    ----------
+    volume_shape   : (Z, Y, X)
+    centerline_ijk : (N, 3) centerline voxel indices [z, y, x]
+    spacing_mm     : [z, y, x]
+    radii_mm       : (N,) per-point vessel radius in mm
+    pcat_scale     : outer boundary multiplier (default 3.0 = diameter × 3)
+    inner_margin_mm: extra margin to add to the inner boundary (default 0)
+
+    Returns
+    -------
+    voi_mask : (Z, Y, X) bool array — True inside the PCAT shell
+    """
+    sz, sy, sx = spacing_mm
+    mean_radius_mm = float(np.mean(radii_mm))
+
+    max_outer_mm = mean_radius_mm * pcat_scale
+    margin_vox = np.array([
+        int(np.ceil(max_outer_mm / sz)) + 2,
+        int(np.ceil(max_outer_mm / sy)) + 2,
+        int(np.ceil(max_outer_mm / sx)) + 2,
+    ])
+
+    lo = np.maximum(centerline_ijk.min(axis=0) - margin_vox, 0).astype(int)
+    hi = np.minimum(centerline_ijk.max(axis=0) + margin_vox,
+                    np.array(volume_shape) - 1).astype(int)
+
+    sub_shape = tuple((hi - lo + 1).tolist())
+    cl_local = centerline_ijk - lo
+
+    cl_mask = np.zeros(sub_shape, dtype=bool)
+    for pt in cl_local:
+        z, y, x = int(pt[0]), int(pt[1]), int(pt[2])
+        if 0 <= z < sub_shape[0] and 0 <= y < sub_shape[1] and 0 <= x < sub_shape[2]:
+            cl_mask[z, y, x] = True
+
+    dist_mm = distance_transform_edt(~cl_mask, sampling=spacing_mm)
+
+    outer_mm = mean_radius_mm * pcat_scale
+    inner_mm = mean_radius_mm + inner_margin_mm
+
+    voi_sub = (dist_mm >= inner_mm) & (dist_mm <= outer_mm)
+
+    voi_full = np.zeros(volume_shape, dtype=bool)
+    voi_full[lo[0]:hi[0]+1, lo[1]:hi[1]+1, lo[2]:hi[2]+1] = voi_sub
+
+    return voi_full
+
+
 def build_vessel_mask(
     volume_shape: Tuple[int, int, int],
     centerline_ijk: np.ndarray,
