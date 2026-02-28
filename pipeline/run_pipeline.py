@@ -69,14 +69,12 @@ from pipeline.visualize import (
     render_3d_voi_dicom,
     render_cpr_fai,
     render_cpr_dicom,
-    render_cpr_grayscale,
-    render_cpr_native,
+    render_cpr_png,
     plot_hu_histogram,
     plot_radial_hu_profile,
     plot_summary,
 )
 
-from pipeline.voi_editor import launch_voi_editor
 
 from pipeline.auto_seeds import _detect_best_device as _auto_detect_device
 
@@ -162,6 +160,21 @@ def _ensure_seeds(
         )
 
 
+
+def _find_reviewed_seeds(seeds_path: Path) -> Optional[Path]:
+    """
+    Check if a reviewed version of the seeds file exists.
+    Convention: replace '_auto.json' with '_reviewed.json' in filename.
+    Also checks for a .done signal file (written by seed_reviewer after save).
+    """
+    name = seeds_path.name
+    if "_auto" in name:
+        reviewed_path = seeds_path.parent / name.replace("_auto", "_reviewed")
+        if reviewed_path.exists():
+            print(f"[pipeline] Found reviewed seeds: {reviewed_path}")
+            return reviewed_path
+    return None
+
 def run_patient(
     dicom_dir: str | Path,
     seeds_path: str | Path,
@@ -236,7 +249,37 @@ def run_patient(
         auto_seeds_device=auto_seeds_device,
         auto_seeds_license=auto_seeds_license,
     )
-
+    # -- Step 2b: Seed review (auto-skip if reviewed seeds already exist) -----
+    reviewed = _find_reviewed_seeds(seeds_path)
+    if reviewed is not None:
+        seeds_path = reviewed
+        print(f"[pipeline] Using reviewed seeds: {seeds_path}")
+    else:
+        # Derive reviewed output path
+        name = seeds_path.name
+        if "_auto" in name:
+            reviewed_path = seeds_path.parent / name.replace("_auto", "_reviewed")
+        else:
+            reviewed_path = seeds_path.parent / (seeds_path.stem + "_reviewed.json")
+        print(f"[pipeline] No reviewed seeds found. Opening seed reviewer...")
+        print(f"[pipeline] Review seeds then press 's' to save and continue the pipeline.")
+        import subprocess as _sp, sys as _sys
+        _sp.run(
+            [
+                _sys.executable,
+                str(Path(__file__).parent / "seed_reviewer.py"),
+                "--dicom", str(dicom_dir),
+                "--seeds", str(seeds_path),
+                "--output", str(reviewed_path),
+            ],
+            check=False,
+        )
+        # After seed_reviewer closes, use reviewed seeds if written
+        if reviewed_path.exists():
+            seeds_path = reviewed_path
+            print(f"[pipeline] Seed review complete. Using: {seeds_path}")
+        else:
+            print(f"[pipeline] WARNING: Seed reviewer closed without saving. Using original seeds.")
     seeds_data = load_seeds(seeds_path)
     if vessels is None:
         vessels = list(seeds_data.keys())
@@ -330,12 +373,17 @@ def run_patient(
         print(f"[pipeline] Proximal segment [{seg_start}–{seg_start+seg_length}mm]: {len(centerline)} points")
         vessel_centerlines[vessel_name] = centerline_full
 
-        # ── Radius estimation ──────────────────────────────────────────
-        print(f"[pipeline] Estimating {vessel_name} vessel radii...")
+        # ── Radius estimation (clipped segment — for VOI/stats) ──────────────────────────────────────────
+        print(f"[pipeline] Estimating {vessel_name} vessel radii (proximal segment)...")
         radii_mm = estimate_vessel_radii(volume, centerline, spacing_mm)
         mean_r = float(np.mean(radii_mm))
         print(f"[pipeline] Mean radius: {mean_r:.2f} mm  (range: {radii_mm.min():.2f}–{radii_mm.max():.2f} mm)")
         vessel_radii_dict[vessel_name] = radii_mm
+
+        # ── Radius estimation (full centerline — for CPR rendering) ──────────────────────────────────────────
+        print(f"[pipeline] Estimating {vessel_name} vessel radii (full centerline)...")
+        radii_mm_full = estimate_vessel_radii(volume, centerline_full, spacing_mm)
+        print(f"[pipeline] Full radii: mean={radii_mm_full.mean():.2f} mm, range={radii_mm_full.min():.2f}–{radii_mm_full.max():.2f} mm")
 
         # ── Build VOI ──────────────────────────────────────────────────
         print(f"[pipeline] Building {vessel_name} tubular VOI...")
@@ -343,21 +391,10 @@ def run_patient(
         print(f"[pipeline] VOI voxels (auto): {voi_mask.sum():,}")
 
 
-        # ── Mandatory sanity check: let the clinician review/edit VOI ────
-        if skip_editor:
-            print(f"[pipeline] --skip-editor set: skipping VOI review for {vessel_name}")
-        else:
-            print(f"[pipeline] MANDATORY SANITY CHECK: launching VOI editor for {vessel_name}...")
-            voi_npy_path = raw_dir / f"{prefix}_{vessel_name}_voi_reviewed.npy"
-            voi_mask = launch_voi_editor(
-                volume=volume,
-                voi_mask=voi_mask,
-                vessel_name=vessel_name,
-                output_path=voi_npy_path,
-                spacing_mm=spacing_mm,
-            )
-            print(f"[pipeline] VOI review complete. Voxels: {voi_mask.sum():,}")
+        # VOI editor removed — vessel wall review is handled by coronary_contour_editor
+        # (launched after all vessels are processed)
         vessel_voi_masks[vessel_name] = voi_mask
+        # Store original mask for 3D render + combined export
         # Store reviewed (or original if skip_editor) mask for 3D render + combined export
 
 
@@ -396,7 +433,7 @@ def run_patient(
         cpr_path = render_cpr_fai(
             volume=volume,
             centerline_ijk=centerline_full,
-            radii_mm=radii_mm,
+            radii_mm=radii_mm_full,
             spacing_mm=spacing_mm,
             vessel_name=vessel_name,
             output_dir=cpr_dir,
@@ -410,7 +447,7 @@ def run_patient(
         cpr_dcm_path = render_cpr_dicom(
             volume=volume,
             centerline_ijk=centerline_full,
-            radii_mm=radii_mm,
+            radii_mm=radii_mm_full,
             spacing_mm=spacing_mm,
             vessel_name=vessel_name,
             output_dir=cpr_dir,
@@ -420,33 +457,19 @@ def run_patient(
         if cpr_dcm_path:
             results["outputs"].append(str(cpr_dcm_path))
 
-        # Output 3b: CPR grayscale multi-rotation
-        cpr_gray_path = render_cpr_grayscale(
+        # Output 3e: CPR PNG with vessel wall + 4 green lines + FAI overlay
+        cpr_wall_path = render_cpr_png(
             volume=volume,
             centerline_ijk=centerline_full,
-            radii_mm=radii_mm,
+            radii_mm=radii_mm_full,
             spacing_mm=spacing_mm,
             vessel_name=vessel_name,
             output_dir=cpr_dir,
             prefix=prefix,
             width_mm=40.0,
         )
-        if cpr_gray_path:
-            results["outputs"].append(str(cpr_gray_path))
-
-        # Output 3c: CPR native (Syngo.via-style curved CPR, 3 rotation views)
-        cpr_native_paths = render_cpr_native(
-            volume=volume,
-            centerline_ijk=centerline_full,
-            radii_mm=radii_mm,
-            spacing_mm=spacing_mm,
-            vessel_name=vessel_name,
-            output_dir=cpr_dir,
-            prefix=prefix,
-            half_width_mm=40.0,
-        )
-        for p in (cpr_native_paths or []):
-            results["outputs"].append(str(p))
+        if cpr_wall_path:
+            results["outputs"].append(str(cpr_wall_path))
 
         # ── Interactive CPR browser (optional, skipped in headless mode) ──────────
         if not skip_cpr_browser:
@@ -494,6 +517,33 @@ def run_patient(
         results["vessels"][vessel_name] = stats
         print(f"[pipeline] {vessel_name} done in {time.time() - t_vsl:.1f}s")
 
+
+    # ── Step 3b: Coronary Artery Contour Editor ──────────────────────────────
+    # Launch interactive editor to review/adjust centerlines and vessel wall contours.
+    # This updates vessel_voi_masks and vessel_centerlines in place.
+    if not skip_editor and vessel_voi_masks:
+        print("\n[pipeline] Launching Coronary Artery Contour Editor...")
+        print("[pipeline] Review centerlines and vessel walls, add PCAT volume, then close.")
+        try:
+            from pipeline.coronary_contour_editor import launch_coronary_contour_editor
+            updated = launch_coronary_contour_editor(
+                volume=volume,
+                spacing_mm=spacing_mm,
+                vessel_centerlines=vessel_centerlines,
+                vessel_radii=vessel_radii_dict,
+                vessel_voi_masks=vessel_voi_masks,
+                output_dir=raw_dir,
+                prefix=prefix,
+            )
+            if updated:
+                vessel_voi_masks.update(updated.get("voi_masks", {}))
+                vessel_centerlines.update(updated.get("centerlines", {}))
+                vessel_radii_dict.update(updated.get("radii", {}))
+                print("[pipeline] Contour editor: masks and centerlines updated.")
+        except ImportError:
+            print("[pipeline] WARNING: coronary_contour_editor not found — skipping contour review.")
+        except Exception as _e:
+            print(f"[pipeline] WARNING: contour editor error: {_e}")
     # ── Step 4: Combined VOI export ───────────────────────────────────────
     if vessel_voi_masks:
         print("\n[pipeline] Exporting combined all-vessel VOI .raw...")
