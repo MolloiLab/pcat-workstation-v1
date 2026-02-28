@@ -536,10 +536,6 @@ class SeedReviewer:
             z, y, x = actual_z, self.y_slice, ix
             self.active_view = "coronal"
             self.z_slice = max(0, min(z, self.shape[0] - 1))
-        elif ax == self.ax_coronal_dummy:
-            z, y, x = iy, self.y_slice, ix
-            self.active_view = "coronal"
-            self.z_slice = max(0, min(z, self.shape[0] - 1))
         elif ax == self.ax_sagittal:
             z, y, x = iy, ix, self.x_slice
             self.active_view = "sagittal"
@@ -597,8 +593,6 @@ class SeedReviewer:
             z, y, x = actual_z, self.y_slice, ix
             self.active_view = "coronal"
             self.z_slice = max(0, min(z, self.shape[0] - 1))
-        elif ax == self.ax_coronal_dummy:
-            z, y, x = iy, self.y_slice, ix
         elif ax == self.ax_sagittal:
             z, y, x = iy, ix, self.x_slice
         else:

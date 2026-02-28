@@ -186,66 +186,6 @@ def _decimate_centerline(
     return kept
 
 
-# ─────────────────────────────────────────────
-# Fast Marching centerline extraction
-# (primary path — requires scikit-fmm)
-# ─────────────────────────────────────────────
-
-def _trace_gradient_path(
-    travel_time: np.ndarray,
-    start_ijk: np.ndarray,
-    end_ijk: np.ndarray,
-    spacing_mm: List[float],
-    max_steps: int = 5000,
-) -> List[np.ndarray]:
-    """Fast vectorised discrete min-neighbor backtracking on FMM travel-time.
-
-    At each voxel finds the 26-connected neighbor with the lowest travel-time
-    (fully vectorised with numpy).  Stops when:
-    - within 2 voxels of goal (start_ijk), or
-    - travel-time stops decreasing (local minimum), or
-    - max_steps reached.
-
-    Starts at end_ijk (high TT) and descends toward start_ijk (TT~0).
-    Returns path ordered start -> end.
-    """
-    shape = np.array(travel_time.shape, dtype=np.int64)
-    sp = np.array(spacing_mm, dtype=np.float64)
-    mean_sp = float(np.mean(sp))
-    pos = np.round(end_ijk).astype(np.int64)
-    goal = np.round(start_ijk).astype(np.int64)
-
-    # 26-connected neighbour offsets, shape (26, 3)
-    offsets = np.array(
-        [(dz, dy, dx)
-         for dz in (-1, 0, 1)
-         for dy in (-1, 0, 1)
-         for dx in (-1, 0, 1)
-         if (dz, dy, dx) != (0, 0, 0)],
-        dtype=np.int64,
-    )
-    path: List[np.ndarray] = [pos.copy()]
-    cur_tt = float(travel_time[pos[0], pos[1], pos[2]])
-    for _ in range(max_steps):
-        if np.linalg.norm((pos - goal).astype(float) * sp) < mean_sp * 2.0:
-            break
-
-        nbs = pos + offsets          # (26, 3)
-        nbs_c = np.clip(nbs, 0, shape - 1)
-        nb_tt = travel_time[nbs_c[:, 0], nbs_c[:, 1], nbs_c[:, 2]]
-
-        best_idx = int(np.argmin(nb_tt))
-        best_tt = float(nb_tt[best_idx])
-
-        if best_tt >= cur_tt:
-            break  # local minimum — no downhill neighbour
-
-        pos = nbs_c[best_idx].copy()
-        cur_tt = best_tt
-        path.append(pos.copy())
-    return list(reversed(path))
-
-
 def _extract_centerline_fmm(
     vesselness: np.ndarray,
     spacing_mm: List[float],

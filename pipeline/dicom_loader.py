@@ -10,8 +10,6 @@ Handles Siemens syngo.via exports:
 
 from __future__ import annotations
 
-import os
-import json
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
@@ -119,51 +117,3 @@ def load_dicom_series(dicom_dir: str | Path) -> Tuple[np.ndarray, Dict[str, Any]
     }
 
     return volume, meta
-
-
-def voxel_to_world(ijk: np.ndarray, meta: Dict[str, Any]) -> np.ndarray:
-    """
-    Convert voxel indices (Z, Y, X) → patient world coordinates (x, y, z) in mm.
-    Assumes standard axial orientation [1,0,0,0,1,0].
-
-    ijk : shape (N, 3) or (3,) — order is (z_idx, y_idx, x_idx)
-    returns xyz : same shape, in mm
-    """
-    ijk = np.atleast_2d(np.asarray(ijk, dtype=float))
-    sz, sy, sx = meta["spacing_mm"]
-    ox, oy, oz = meta["origin_mm"]
-
-    # patient x = origin_x + col_idx * sx
-    # patient y = origin_y + row_idx * sy
-    # patient z = z_positions[z_idx]  (use actual positions for non-uniform spacing)
-    z_pos = np.array(meta["z_positions"])
-
-    z_idx = ijk[:, 0].astype(int)
-    z_idx = np.clip(z_idx, 0, len(z_pos) - 1)
-
-    xyz = np.zeros_like(ijk)
-    xyz[:, 0] = ox + ijk[:, 2] * sx  # x
-    xyz[:, 1] = oy + ijk[:, 1] * sy  # y
-    xyz[:, 2] = z_pos[z_idx]          # z
-
-    return xyz.squeeze()
-
-
-def world_to_voxel(xyz: np.ndarray, meta: Dict[str, Any]) -> np.ndarray:
-    """
-    Convert patient world coordinates (x, y, z) mm → voxel indices (z_idx, y_idx, x_idx).
-    """
-    xyz = np.atleast_2d(np.asarray(xyz, dtype=float))
-    sz, sy, sx = meta["spacing_mm"]
-    ox, oy, oz = meta["origin_mm"]
-    z_positions = np.array(meta["z_positions"])
-
-    # For z: find nearest slice
-    z_vals = xyz[:, 2]
-    z_idx = np.array([int(np.argmin(np.abs(z_positions - z))) for z in z_vals])
-
-    y_idx = ((xyz[:, 1] - oy) / sy).astype(int)
-    x_idx = ((xyz[:, 0] - ox) / sx).astype(int)
-
-    ijk = np.stack([z_idx, y_idx, x_idx], axis=1)
-    return ijk.squeeze()
