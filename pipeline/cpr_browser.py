@@ -160,7 +160,7 @@ class CPRBrowser:
                 spine.set_edgecolor("#3a3a5a")
 
         # ── Draw CPR (static — does not change with needle) ──────────────
-        cpr_image = self.cpr_volume[:, self.n_height // 2, :]  # (N_pts, n_width)
+        cpr_image = self.cpr_volume.T  # (n_height, n_width) — transpose of (pixels_wide, pixels_high)
         gray_img  = np.clip(cpr_image, -200.0, 400.0)
         gray_norm = (gray_img + 200.0) / 600.0
         gray_norm = np.nan_to_num(gray_norm, nan=0.0)
@@ -271,7 +271,10 @@ class CPRBrowser:
         idx = int(np.clip(idx, 0, self.N_pts - 1))
         self._needle_idx = idx
 
-        cs_plane = self.cpr_volume[idx, :, :]  # (n_height, n_width)
+        # cpr_volume is now (pixels_wide, pixels_high) — 2D straightened CPR.
+        # Extract column at arc-length index `idx` as cross-section proxy.
+        col_idx = int(np.clip(idx, 0, self.cpr_volume.shape[0] - 1))
+        cs_plane = self.cpr_volume[col_idx : col_idx + 1, :].T  # (n_height, 1)
 
         # Grayscale anatomy
         gray = np.clip(cs_plane, -200.0, 400.0)

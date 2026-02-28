@@ -22,7 +22,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.ticker import MaxNLocator
-from scipy.ndimage import distance_transform_edt, map_coordinates
+from scipy.ndimage import distance_transform_edt, map_coordinates, gaussian_filter1d
 from scipy.interpolate import CubicSpline
 
 # Guard pyvista import — it may not be installed in all environments
@@ -472,9 +472,12 @@ def render_cpr_fai(
     # Straightened CPR: take the centre row (v=0, i.e. B=0 plane).
     # Shape: (N_pts, n_width).  Transpose -> (n_width, N_pts) for imshow so that
     # x-axis = arc-length and y-axis = lateral distance.
-    centre_row = n_height // 2
-    cpr_image  = cpr_volume[:, centre_row, :]   # (N_pts, n_width)
-    fig, ax = plt.subplots(figsize=(7, 14), dpi=150)
+    # cpr_volume is (pixels_wide, pixels_high) = (n_width, n_height)
+    # Transpose → (n_height, n_width) for imshow:
+    #   rows = lateral axis  (y = lateral mm from centreline)
+    #   cols = arc-length axis (x = distance along vessel, ostium at left)
+    cpr_image = cpr_volume.T   # (n_height, n_width)
+    fig, ax = plt.subplots(figsize=(14, 7), dpi=150)
     # Grayscale background (soft-tissue window -200...+400 HU)
     gray_img  = np.clip(cpr_image, -200.0, 400.0)
     gray_norm = (gray_img + 200.0) / 600.0
@@ -508,28 +511,28 @@ def render_cpr_fai(
         alpha=0.85,
         interpolation="bilinear",
     )
-    # Colorbar
     cbar = plt.colorbar(fai_im, ax=ax, fraction=0.025, pad=0.01)
     cbar.set_label("HU (FAI)", fontsize=10)
     cbar.set_ticks([FAI_HU_MIN, -150, -100, -50, FAI_HU_MAX])
-    # X-axis: lateral distance ticks (mm)
+    # After transpose: cols = arc-length, rows = lateral
+    # X-axis: arc-length ticks (mm)
+    total_mm = float(arclengths[-1]) if len(arclengths) > 0 else 0.0
+    x_ticks_mm  = np.arange(0, total_mm + 1, 10.0)
+    x_tick_idxs = ((x_ticks_mm / total_mm) * (n_width - 1)).astype(int) if total_mm > 0 else [0]
+    ax.set_xticks(np.clip(x_tick_idxs, 0, n_width - 1))
+    ax.set_xticklabels([f"{t:.0f}" for t in x_ticks_mm], fontsize=9)
+    ax.set_xlabel("Distance along vessel (mm)", fontsize=11)
+    # Y-axis: lateral distance ticks (mm)
     y_ticks_mm  = np.arange(-width_mm, width_mm + 1, 5.0)
-    y_tick_idxs = ((y_ticks_mm + width_mm) / (2 * width_mm) * (n_width - 1)).astype(int)
-    ax.set_xticks(np.clip(y_tick_idxs, 0, n_width - 1))
-    ax.set_xticklabels([f"{t:.0f}" for t in y_ticks_mm], fontsize=9)
-    ax.set_xlabel("Lateral distance from centreline (mm)", fontsize=11)
-    # Y-axis: arc-length ticks (mm) — arclengths go top to bottom
-    x_ticks_mm  = np.arange(0, arclengths[-1] + 1, 10.0)
-    x_tick_idxs = [int(np.argmin(np.abs(arclengths - t))) for t in x_ticks_mm]
-    ax.set_yticks(x_tick_idxs)
-    ax.set_yticklabels([f"{t:.0f}" for t in x_ticks_mm], fontsize=9)
-    ax.set_ylabel("Distance along vessel (mm)", fontsize=11)
-    ax.axvline(n_width // 2, color="white", linewidth=0.8, linestyle="--", alpha=0.5)
+    y_tick_idxs = (((y_ticks_mm + width_mm) / (2 * width_mm)) * (n_height - 1)).astype(int)
+    ax.set_yticks(np.clip(y_tick_idxs, 0, n_height - 1))
+    ax.set_yticklabels([f"{t:.0f}" for t in y_ticks_mm], fontsize=9)
+    ax.set_ylabel("Lateral distance from centreline (mm)", fontsize=11)
+    ax.axhline(n_height // 2, color="white", linewidth=0.8, linestyle="--", alpha=0.5)
     ax.set_title(
         f"CPR — {vessel_name} — FAI overlay (HU {FAI_HU_MIN:.0f} to {FAI_HU_MAX:.0f})\n"
-        f"Bishop-frame straightened CPR (vessel top→bottom, ostium at top)  |  slab MIP {slab_thickness_mm:.0f} mm  |  width ±{width_mm:.0f} mm",
-        fontsize=11,
-        fontweight="bold",
+        f"Horos-exact straightened CPR | slab MIP {slab_thickness_mm:.0f} mm | width ±{width_mm:.0f} mm",
+        fontsize=11, fontweight="bold",
     )
     plt.tight_layout()
     out_path = output_dir / f"{prefix}_{vessel_name}_cpr_fai.png"
@@ -538,124 +541,9 @@ def render_cpr_fai(
     print(f"[visualize] CPR FAI saved: {out_path.name}")
     return out_path
 
-
-def render_cpr_grayscale(
-    volume: np.ndarray,
-    centerline_ijk: np.ndarray,
-    radii_mm: np.ndarray,
-    spacing_mm: List[float],
-    vessel_name: str,
-    output_dir: str | Path,
-    prefix: str = "pcat",
-    slab_thickness_mm: float = 3.0,
-    width_mm: float = 25.0,
-    n_rotations: int = 6,
-    window_center: float = 200.0,
-    window_width: float = 600.0,
-) -> Optional[Path]:
-    """
-    Render multi-rotation grayscale CPR images at 6 different viewing angles.
-
-    Generates a 2x3 panel figure showing the CPR at rotation angles
-    0°, 60°, 120°, 180°, 240°, 300° around the vessel axis.
-
-    Parameters
-    ----------
-    volume          : (Z, Y, X) HU float32
-    centerline_ijk  : (N, 3) centerline voxel indices [z, y, x]
-    radii_mm        : (N,) vessel radii
-    spacing_mm      : [sz, sy, sx]
-    vessel_name     : e.g. "LAD"
-    output_dir      : output directory
-    prefix          : filename prefix
-    slab_thickness_mm : total slab thickness for MIP along tangent (mm)
-    width_mm        : half-width of the CPR plane (lateral extent from centreline)
-    n_rotations     : number of rotation angles (default 6: 0°, 60°, 120°, 180°, 240°, 300°)
-    window_center   : window center for HU display (default 200)
-    window_width    : window width for HU display (default 600)
-
-    Returns
-    -------
-    Path to saved PNG, or None if too few centerline points
-    """
-    from scipy.ndimage import rotate as ndimage_rotate
-
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    N_pts = len(centerline_ijk)
-    if N_pts < 3:
-        print(f"[visualize] CPR grayscale: too few centerline points for {vessel_name}, skipping.")
-        return None
-
-    # Compute CPR data using shared helper
-    (cpr_volume, N_frame, B_frame, cl_mm, arclengths, n_height, n_width) = _compute_cpr_data(
-        volume, centerline_ijk, spacing_mm,
-        slab_thickness_mm=slab_thickness_mm, width_mm=width_mm,
-    )
-
-    # Compute rotation angles
-    angles = np.linspace(0, 360, n_rotations, endpoint=False)
-
-    # HU windowing parameters
-    HU_min = window_center - window_width / 2.0
-    HU_max = window_center + window_width / 2.0
-
-    # Create 2x3 figure
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10), dpi=150)
-    axes = axes.flatten()
-
-    for idx, theta in enumerate(angles):
-        ax = axes[idx]
-
-        # Rotate CPR volume around the centerline axis (in the N-B plane)
-        # cpr_volume has shape (N_pts, n_height, n_width)
-        # Rotate each cross-section slice by theta degrees in the (N, B) plane
-        rotated_view = ndimage_rotate(
-            cpr_volume,
-            angle=theta,
-            axes=(1, 2),
-            reshape=False,
-            order=1,
-            mode='nearest'
-        )
-
-        # Extract the centre row (v=0, i.e. B=0 plane after rotation)
-        centre_row = n_height // 2
-        cpr_rotated = rotated_view[:, centre_row, :]  # (N_pts, n_width)
-
-        # Apply HU windowing
-        windowed = np.clip(cpr_rotated, HU_min, HU_max)
-        windowed_norm = (windowed - HU_min) / window_width  # -> [0, 1]
-        windowed_norm = np.nan_to_num(windowed_norm, nan=0.0)
-
-        # Display
-        ax.imshow(
-            windowed_norm,
-            cmap="gray",
-            vmin=0.0,
-            vmax=1.0,
-            aspect="auto",
-            origin="upper",
-            interpolation="bilinear",
-        )
-        ax.set_title(f"{int(theta)}°", fontsize=12, fontweight="bold")
-        ax.set_xlabel("Lateral distance (mm)", fontsize=9)
-        ax.set_ylabel("Arc-length (mm)", fontsize=9)
-
-    # Overall title
-    fig.suptitle(
-        f"CPR Grayscale — {vessel_name} — WC={int(window_center)} WW={int(window_width)}",
-        fontsize=14,
-        fontweight="bold",
-    )
-
-    plt.tight_layout()
-    out_path = output_dir / f"{prefix}_{vessel_name}_cpr_grayscale.png"
-    plt.savefig(str(out_path), bbox_inches="tight")
-    plt.close(fig)
-    print(f"[visualize] CPR grayscale saved: {out_path.name}")
-    return out_path
+# ─────────────────────────────────────────────────────────────────────────────
+# Output 3b: CPR DICOM — true HU int16 pixel data
+# ─────────────────────────────────────────────────────────────────────────────
 
 def render_cpr_dicom(
     volume: np.ndarray,
@@ -670,34 +558,25 @@ def render_cpr_dicom(
     patient_meta: Optional[dict] = None,
 ) -> Optional[Path]:
     """
-    Render a Curved Planar Reformat (CPR) as a DICOM Secondary Capture file
-    with burned-in annotations.
-    
-    This function computes CPR data and creates a 512×512 RGB image with:
-       - Black background
-       - Grayscale CPR image (soft-tissue window -200 to +400 HU), normalized to 8-bit
-       - FAI colormap overlay for fat voxels (-190 to -30 HU), yellow→red, alpha=0.85
-       - Burned-in annotations:
-         * White dashed vertical line at center column (centerline position)
-         * Green lines at ±mean_radius_mm columns (vessel wall boundary)
-         * Green lines at ±(mean_radius_mm + mean_radius_mm) columns (outer VOI boundary)
-         * Small white text labels: vessel name top-left, "HU -190 to -30" bottom-left
-       - Color bar legend (burned into image): vertical strip on the right
-         yellow=-190 to red=-30, 20px wide
-    
+    Render a Curved Planar Reformat (CPR) as a DICOM CT Image Storage file
+    containing real HU values (int16 pixels, no RGB, no normalization).
+
+    Pixel data stored as int16 with RescaleIntercept=0 / RescaleSlope=1 so
+    that the HU value of every pixel equals the stored integer directly.
+
     Parameters
     ----------
     volume          : (Z, Y, X) HU float32
-    centerline_ijk  : (N, 3) centerline voxel indices [z, y, x]
+    centerline_ijk  : (N, 3) voxel indices [z, y, x]
     radii_mm        : (N,) vessel radii
     spacing_mm      : [sz, sy, sx]
     vessel_name     : e.g. "LAD"
     output_dir      : output directory
     prefix          : filename prefix
-    slab_thickness_mm : total slab thickness for MIP along tangent (mm)
-    width_mm        : half-width of the CPR plane (lateral extent from centreline)
+    slab_thickness_mm : total slab thickness for MIP along binormal (mm)
+    width_mm        : half-width of lateral axis in mm
     patient_meta    : optional patient metadata from DICOM
-    
+
     Returns
     -------
     Path to saved DICOM file, or None if too few centerline points
@@ -706,198 +585,96 @@ def render_cpr_dicom(
         import pydicom
         from pydicom.dataset import Dataset, FileMetaDataset
         from pydicom.uid import generate_uid, ExplicitVRLittleEndian
-        SecondaryCaptureImageStorage = "1.2.840.10008.5.1.4.1.1.7"
+        CTImageStorage = "1.2.840.10008.5.1.4.1.1.2"
     except ImportError:
         print("[visualize] Skipping CPR DICOM: pydicom not installed. pip install pydicom")
         return None
-    
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    N_pts = len(centerline_ijk)
-    if N_pts < 3:
+    if len(centerline_ijk) < 3:
         print(f"[visualize] CPR DICOM: too few centerline points for {vessel_name}, skipping.")
         return None
-    
-    # Compute CPR data using existing helper
+
     (cpr_volume, N_frame, B_frame, cl_mm, arclengths, n_height, n_width) = _compute_cpr_data(
         volume, centerline_ijk, spacing_mm,
         slab_thickness_mm=slab_thickness_mm, width_mm=width_mm,
     )
-    
-    # Build the CPR image
-    centre_row = n_height // 2
-    cpr_image = cpr_volume[:, centre_row, :]  # (N_pts, n_width)
-    
-    # Create 512x512 RGB canvas
-    img_size = 512
-    rgb_image = np.zeros((img_size, img_size, 3), dtype=np.uint8)
-    
-    # Calculate pixel spacing
-    pixel_spacing_mm = (2 * width_mm) / img_size
-    
-    # Grayscale CPR (soft-tissue window -200 to +400 HU)
-    gray_img = np.clip(cpr_image, -200.0, 400.0)
-    gray_norm = (gray_img + 200.0) / 600.0
-    gray_norm = np.nan_to_num(gray_norm, nan=0.0)
-    
-    # Resize to fit canvas and place in RGB image
-    try:
-        from PIL import Image as _PILImage
-        gray_pil = _PILImage.fromarray((gray_norm * 255).astype(np.uint8))
-        gray_resized = gray_pil.resize((img_size, img_size), _PILImage.LANCZOS)
-        gray_resized = np.array(gray_resized)
-        # Convert to RGB
-        rgb_image[:, :, 0] = gray_resized
-        rgb_image[:, :, 1] = gray_resized
-        rgb_image[:, :, 2] = gray_resized
-    except ImportError:
-        # Fallback without PIL
-        print("[visualize] Warning: PIL not available, using basic resize for CPR DICOM")
-        # Simple nearest-neighbor resize
-        scale_y = img_size / gray_norm.shape[0]
-        scale_x = img_size / gray_norm.shape[1]
-        y_indices = np.minimum((np.arange(img_size) / scale_y).astype(int), gray_norm.shape[0] - 1)
-        x_indices = np.minimum((np.arange(img_size) / scale_x).astype(int), gray_norm.shape[1] - 1)
-        resized = gray_norm[y_indices[:, None], x_indices[None, :]]
-        rgb_image[:, :, 0] = (resized * 255).astype(np.uint8)
-        rgb_image[:, :, 1] = (resized * 255).astype(np.uint8)
-        rgb_image[:, :, 2] = (resized * 255).astype(np.uint8)
-    
-    # Add FAI overlay with alpha blending
-    fai_img = np.where(
-        (cpr_image >= FAI_HU_MIN) & (cpr_image <= FAI_HU_MAX),
-        cpr_image,
-        np.nan,
-    )
-    
-    # Create FAI color overlay
-    fai_cmap = _fai_colormap()
-    fai_norm = (fai_img - FAI_HU_MIN) / (FAI_HU_MAX - FAI_HU_MIN)  # [0, 1]
-    fai_norm = np.nan_to_num(fai_norm, nan=0.0)
-    
-    # Resize FAI overlay
-    try:
-        fai_pil = _PILImage.fromarray((fai_norm * 255).astype(np.uint8), mode='L')
-        fai_resized = fai_pil.resize((img_size, img_size), _PILImage.LANCZOS)
-        fai_resized = np.array(fai_resized) / 255.0
-        
-        # Apply FAI colormap
-        fai_colors = fai_cmap(fai_resized)[:, :, :3]  # Take RGB, drop alpha
-        fai_alpha = (fai_resized > 0).astype(np.float32) * 0.85  # Binary fat mask: non-fat pixels get alpha=0
-        
-        # Alpha blend with background
-        for c in range(3):  # RGB channels
-            rgb_image[:, :, c] = (
-                rgb_image[:, :, c] * (1 - fai_alpha) + 
-                fai_colors[:, :, c] * 255 * fai_alpha
-            ).astype(np.uint8)
-    except:
-        print("[visualize] Warning: FAI overlay failed in CPR DICOM")
-    
-    # Add burned-in annotations
-    try:
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as mpatches
-        
-        fig, ax = plt.subplots(figsize=(5.12, 5.12), dpi=100)
-        ax.imshow(rgb_image, aspect='auto', origin='upper')
-        ax.axis('off')
-        
-        # Calculate pixel positions for annotations
-        mean_radius_px = int(np.mean(radii_mm) / pixel_spacing_mm)
-        center_px = img_size // 2
-        
-        # White dashed vertical line at centerline
-        ax.axvline(x=center_px, color='white', linestyle='--', linewidth=1.5, alpha=0.8)
-        
-        # Green lines at vessel wall boundaries
-        ax.axvline(x=center_px - mean_radius_px, color='green', linestyle='-', linewidth=1.0, alpha=0.7)
-        ax.axvline(x=center_px + mean_radius_px, color='green', linestyle='-', linewidth=1.0, alpha=0.7)
-        
-        # Green lines at outer VOI boundary (2x mean radius)
-        ax.axvline(x=center_px - 2*mean_radius_px, color='green', linestyle='-', linewidth=1.0, alpha=0.5)
-        ax.axvline(x=center_px + 2*mean_radius_px, color='green', linestyle='-', linewidth=1.0, alpha=0.5)
-        
-        # Text labels
-        ax.text(10, 30, vessel_name, color='white', fontsize=10, fontweight='bold')
-        ax.text(10, img_size - 20, "HU -190 to -30", color='white', fontsize=8)
-        
-        # Color bar on right (20px wide)
-        cbar_width = 20
-        cbar_height = 200
-        cbar_x = img_size - cbar_width - 10
-        cbar_y = (img_size - cbar_height) // 2
-        
-        # Draw color bar gradient
-        for i in range(cbar_height):
-            val = 1.0 - (i / cbar_height)  # Top to bottom: -190 to -30
-            color = fai_cmap(val)[:3]  # RGB only
-            rect = mpatches.Rectangle((cbar_x, cbar_y + i), cbar_width, 1, 
-                                    facecolor=color, edgecolor='none')
-            ax.add_patch(rect)
-        
-        # Color bar labels
-        ax.text(cbar_x + cbar_width/2, cbar_y - 10, "-190", color='white', fontsize=7, ha='center')
-        ax.text(cbar_x + cbar_width/2, cbar_y + cbar_height + 10, "-30", color='white', fontsize=7, ha='center')
-        
-        # Convert to numpy array
-        fig.canvas.draw()
-        rgb_with_annotations = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        rgb_with_annotations = rgb_with_annotations.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        plt.close(fig)
-        
-        rgb_image = rgb_with_annotations
-    except Exception as e:
-        print(f"[visualize] Warning: Annotations failed in CPR DICOM: {e}")
-    
-    # Write DICOM Secondary Capture
+    # cpr_volume is (pixels_wide, pixels_high); transpose → (rows=lateral, cols=arc-length)
+    cpr_image = cpr_volume.T   # (n_height, n_width) — real HU float32
+
+    # Replace NaN (OOB voxels) with -1024 (standard DICOM air HU fill)
+    cpr_image = np.nan_to_num(cpr_image, nan=-1024.0)
+
+    # Clip to valid int16 range before casting
+    cpr_int16 = np.clip(cpr_image, -32768, 32767).astype(np.int16)
+
+    rows, cols = cpr_int16.shape
+
+    # ── DICOM header ─────────────────────────────────────────────────────────
     file_meta = FileMetaDataset()
-    file_meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+    file_meta.MediaStorageSOPClassUID = CTImageStorage
     sop_uid = generate_uid()
     file_meta.MediaStorageSOPInstanceUID = sop_uid
     file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
-    
+
     ds = Dataset()
     ds.file_meta = file_meta
     ds.is_implicit_VR = False
     ds.is_little_endian = True
-    ds.SOPClassUID = SecondaryCaptureImageStorage
+
+    ds.SOPClassUID = CTImageStorage
     ds.SOPInstanceUID = sop_uid
-    ds.Modality = "SC"
+    ds.Modality = "CT"
     ds.SeriesInstanceUID = generate_uid()
     ds.SeriesNumber = 901
-    ds.SeriesDescription = f"CPR {vessel_name} FAI"
-    ds.ImageType = ["DERIVED", "SECONDARY", "AXIAL", "CPR"]
-    ds.BurnedInAnnotation = "YES"
-    ds.Rows = img_size
-    ds.Columns = img_size
-    ds.SamplesPerPixel = 3
-    ds.PhotometricInterpretation = "RGB"
-    ds.BitsAllocated = 8
-    ds.BitsStored = 8
-    ds.HighBit = 7
-    ds.PixelRepresentation = 0
-    ds.PlanarConfiguration = 0
-    ds.PixelSpacing = [pixel_spacing_mm, pixel_spacing_mm]
-    ds.PixelData = rgb_image.astype(np.uint8).tobytes()
-    
-    # Copy patient metadata if available
+    ds.SeriesDescription = f"CPR {vessel_name} HU"
+    ds.ImageType = ["DERIVED", "SECONDARY", "REFORMAT", "CPR"]
+    ds.BurnedInAnnotation = "NO"
+
+    # True HU storage: 16-bit signed, slope=1, intercept=0
+    ds.Rows = rows
+    ds.Columns = cols
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.BitsAllocated = 16
+    ds.BitsStored = 16
+    ds.HighBit = 15
+    ds.PixelRepresentation = 1   # signed int16
+    ds.RescaleIntercept = 0.0
+    ds.RescaleSlope = 1.0
+    ds.RescaleType = "HU"
+    ds.WindowCenter = 50
+    ds.WindowWidth = 400
+
+    # Pixel spacing: [row_spacing_mm, col_spacing_mm]
+    # row spacing = lateral mm per pixel;  col spacing = arc-length mm per pixel
+    lat_mm_per_px = (2.0 * width_mm) / n_height
+    arc_total_mm  = float(arclengths[-1]) if len(arclengths) > 0 else float(2.0 * width_mm)
+    arc_mm_per_px = arc_total_mm / n_width if n_width > 0 else lat_mm_per_px
+    ds.PixelSpacing = [f"{lat_mm_per_px:.6f}", f"{arc_mm_per_px:.6f}"]
+
+    # Optional patient metadata
     if patient_meta:
-        for tag in ['PatientID', 'StudyInstanceUID', 'SeriesInstanceUID', 'AccessionNumber']:
+        for tag in ['PatientID', 'StudyInstanceUID', 'AccessionNumber',
+                    'PatientName', 'StudyDate', 'StudyTime']:
             if tag in patient_meta:
                 setattr(ds, tag, patient_meta[tag])
-    
-    out_path = output_dir / f"{prefix}_{vessel_name}_cpr_fai.dcm"
+
+    ds.PixelData = cpr_int16.tobytes()
+
+    out_path = output_dir / f"{prefix}_{vessel_name}_cpr_hu.dcm"
     pydicom.dcmwrite(str(out_path), ds, write_like_original=False)
-    print(f"[visualize] CPR DICOM saved: {out_path.name}")
-    
+    print(f"[visualize] CPR HU DICOM saved: {out_path.name}  "
+          f"HU range: [{cpr_int16.min()}, {cpr_int16.max()}]")
     return out_path
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Output 3c: Native / Curved CPR (Syngo.via style)
+# Output 3c: CPR PNG — vessel wall detection + 4 curved green lines + FAI
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render_cpr_native(
+def render_cpr_png(
     volume: np.ndarray,
     centerline_ijk: np.ndarray,
     radii_mm: np.ndarray,
@@ -906,174 +683,146 @@ def render_cpr_native(
     output_dir: str | Path,
     prefix: str = "pcat",
     slab_thickness_mm: float = 3.0,
-    n_rotations: int = 3,
-    output_size: int = 512,
-    half_width_mm: float = 15.0,
-    window_center: float = 200.0,
-    window_width: float = 600.0,
-) -> List[Path]:
+    width_mm: float = 25.0,
+) -> Optional[Path]:
     """
-    Render true curved CPR images matching the Syngo.via clinical reference.
+    Render a clinical-quality CPR PNG with:
+      - Grayscale background (soft-tissue window)
+      - 4 curved green boundary lines derived from vessel radius per column:
+          1: left vessel wall  (row = centre - radius_px)
+          2: right vessel wall (row = centre + radius_px)
+          3: left PCAT boundary  (row = centre - 2*radius_px)
+          4: right PCAT boundary (row = centre + 2*radius_px)
+      - FAI colour map (HU -190 → -30, yellow→red) ONLY inside the PCAT band
+        (between green lines 1–3 on the left and 2–4 on the right).
+      - Horizontal orientation: arc-length on X-axis, ostium at left.
 
-    Each output image (output_size x output_size) is a curved-MPR: the X axis
-    runs along the vessel arc-length (vessel unrolled horizontally), and the Y
-    axis runs radially outward from the centerline in a rotated direction.
-    Pixels outside the volume bounds are set to NaN -> rendered black (sentinel).
-
-    This matches the Syngo.via 'Curved Range Radial MPR_CURVED' reference DICOMs:
-    - 512x512, dark/black background, vessel unrolled along the frame.
-    - n_rotations evenly spaced radial cut-plane angles (0deg, 120deg, 240deg).
     Parameters
     ----------
-    volume            : (Z, Y, X) HU float32
-    centerline_ijk    : (N, 3) centerline voxel indices [z, y, x]
-    radii_mm          : (N,) per-point vessel radii in mm
-    spacing_mm        : [sz, sy, sx]
-    vessel_name       : e.g. 'RCA'
-    output_dir        : directory to write PNGs
-    prefix            : filename prefix
-    slab_thickness_mm : half-slab thickness around the radial cut plane (mm), default 3
-    n_rotations       : number of rotation views, default 3
-    output_size       : output image size in pixels (default 512)
-    half_width_mm     : radial extent from centerline on each side (mm), default 15
-    window_center     : HU window center (default 200, matching Syngo.via reference)
-    window_width      : HU window width  (default 600, matching Syngo.via reference)
+    volume          : (Z, Y, X) HU float32
+    centerline_ijk  : (N, 3) voxel indices [z, y, x]
+    radii_mm        : (N,) vessel radii in mm — one per seed waypoint
+    spacing_mm      : [sz, sy, sx]
+    vessel_name     : e.g. "LAD"
+    output_dir      : output directory
+    prefix          : filename prefix
+    slab_thickness_mm : slab MIP thickness along binormal (mm)
+    width_mm        : half-width of CPR (lateral axis extent in mm)
+
+    Returns
     -------
-    List of Paths to saved PNGs (one per rotation angle)
+    Path to saved PNG, or None on failure
     """
-    from scipy.ndimage import map_coordinates as _map_coords
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    sz, sy, sx = float(spacing_mm[0]), float(spacing_mm[1]), float(spacing_mm[2])
-    N_pts = centerline_ijk.shape[0]
-    if N_pts < 3:
-        print(f"[visualize] CPR native: too few centerline points for {vessel_name}, skipping.")
-        return []
-    vox_size = np.array([sz, sy, sx], dtype=np.float64)  # (z, y, x)
-    shape = np.array(volume.shape, dtype=int)             # (Z, Y, X)
-    cl_mm_raw = centerline_ijk.astype(np.float64) * vox_size  # (N, 3)
-    # ── Fit cubic spline through raw centerline (Horos-style Bézier equivalent) ──
-    # Replaces linear np.interp + Gaussian smoothing with analytically smooth curve.
-    diffs_raw = np.diff(cl_mm_raw, axis=0)
-    seg_len_raw = np.linalg.norm(diffs_raw, axis=1)
-    cumlen_raw = np.concatenate([[0.0], np.cumsum(seg_len_raw)])
-    total_len = cumlen_raw[-1]
-    if total_len < 1.0:
-        print(f"[visualize] CPR native: degenerate centerline ({total_len:.2f}mm) for {vessel_name}, skipping.")
-        return []
-    cs_native = CubicSpline(cumlen_raw, cl_mm_raw, bc_type='not-a-knot')
-    # Resample at exactly output_size uniform arc-length steps
-    s_out = np.linspace(0.0, total_len, output_size)  # (W,)
-    cl_rs = cs_native(s_out)                           # (W, 3) smooth positions
-    # Analytic tangents from spline first derivative — smooth, no finite-difference noise
-    T_raw_native = cs_native(s_out, 1)                 # (W, 3)
-    norms_native = np.linalg.norm(T_raw_native, axis=1, keepdims=True) + 1e-12
-    tangents = T_raw_native / norms_native             # (W, 3), unit tangents
+    if len(centerline_ijk) < 3:
+        print(f"[visualize] CPR PNG: too few centerline points for {vessel_name}, skipping.")
+        return None
 
-    # ── Build a stable perpendicular frame at each column ────────────────────
-    # Use Bishop (parallel-transport) framing to avoid discontinuous flips.
-    def _init_perp(t0):
-        ref = np.array([0.0, 0.0, 1.0])
-        if abs(np.dot(t0, ref)) > 0.9:
-            ref = np.array([0.0, 1.0, 0.0])
-        v = ref - np.dot(ref, t0) * t0
-        return v / (np.linalg.norm(v) + 1e-12)
+    (cpr_volume, N_frame, B_frame, cl_mm, arclengths, n_height, n_width) = _compute_cpr_data(
+        volume, centerline_ijk, spacing_mm,
+        slab_thickness_mm=slab_thickness_mm, width_mm=width_mm,
+    )
+    cpr_image = cpr_volume.T   # (n_height, n_width): rows=lateral, cols=arc-length
 
-    perp = np.zeros_like(tangents)  # (W, 3)
-    perp[0] = _init_perp(tangents[0])
-    for i in range(1, output_size):
-        v = perp[i - 1] - np.dot(perp[i - 1], tangents[i]) * tangents[i]
-        nv = np.linalg.norm(v)
-        perp[i] = v / (nv + 1e-12) if nv > 1e-8 else _init_perp(tangents[i])
+    # ── Compute per-column vessel radius in pixel units ───────────────────────
+    # radii_mm has one value per centerline point; interpolate to n_width columns,
+    # then Gaussian-smooth to eliminate per-point EDT noise (jagged green lines).
+    if radii_mm is not None and len(radii_mm) >= 2:
+        src_x = np.linspace(0, n_width - 1, len(radii_mm))
+        col_x = np.arange(n_width, dtype=float)
+        r_mm  = np.interp(col_x, src_x, radii_mm)          # (n_width,) mm
+        r_mm  = gaussian_filter1d(r_mm, sigma=8.0)          # smooth out per-point EDT noise
+    else:
+        r_mm = np.full(n_width, float(np.mean(radii_mm)) if radii_mm is not None else 2.0)
+    lat_mm_per_px = (2.0 * width_mm) / n_height
+    r_px = np.clip(r_mm / lat_mm_per_px, 1.0, n_height / 2.0 - 1.0)  # (n_width,)
 
-    # ── For each rotation angle: build the 2D curved-CPR image ───────────────
-    out_paths: List[Path] = []
-    angles_deg = np.linspace(0.0, 360.0, n_rotations, endpoint=False)
-    mean_sp = float(np.mean(vox_size))
-    n_slab = max(1, int(np.ceil(2.0 * slab_thickness_mm / mean_sp)))
-    for rot_idx, theta_deg in enumerate(angles_deg):
-        theta = np.radians(theta_deg)
-        # Rotate perpendicular frame by theta around tangent (Rodrigues, simplified:
-        # since perp is already perpendicular to tangent, dot(perp, tangent) = 0)
-        U_rot = (
-            perp * np.cos(theta)
-            + np.cross(tangents, perp) * np.sin(theta)
-        )  # (W, 3) unit radial direction per column
-        norms2 = np.linalg.norm(U_rot, axis=1, keepdims=True) + 1e-12
-        U_rot /= norms2
+    # Vessel centre row (pixels) — centreline is at the geometric centre
+    centre_row = (n_height - 1) / 2.0
 
-        # Row coordinates: radial offsets from centerline
-        r_coords = np.linspace(half_width_mm, -half_width_mm, output_size)  # (H,)
+    # Row coordinates of the 4 boundary curves (one float per column)
+    wall_top = centre_row - r_px          # inner top    (vessel wall, upper)
+    wall_bot = centre_row + r_px          # inner bottom (vessel wall, lower)
+    pcat_top = centre_row - 2.0 * r_px   # outer top    (PCAT boundary)
+    pcat_bot = centre_row + 2.0 * r_px   # outer bottom (PCAT boundary)
 
-        # Build 3D sample points: (H, W, 3)
-        pts_base_mm = (
-            cl_rs[np.newaxis, :, :]                             # (1, W, 3)
-            + r_coords[:, np.newaxis, np.newaxis]               # (H, 1, 1)
-              * U_rot[np.newaxis, :, :]                         # (1, W, 3)
-        )  # (H, W, 3)
-        # ── Thin-slab MaxIP around the radial cut plane ─────────────────────
-        # Slab direction = tangent x U_rot (the remaining orthogonal axis)
-        slab_dirs = np.cross(tangents, U_rot)  # (W, 3) slab normal per column
-        slab_norms = np.linalg.norm(slab_dirs, axis=1, keepdims=True) + 1e-12
-        slab_dirs /= slab_norms  # (W, 3) unit
+    # ── Grayscale background (soft-tissue window -200 … +400 HU) ─────────────
+    gray = np.clip(cpr_image, -200.0, 400.0)
+    gray = np.nan_to_num((gray + 200.0) / 600.0, nan=0.0)
 
-        slab_offsets = np.linspace(-slab_thickness_mm / 2.0, slab_thickness_mm / 2.0, n_slab)
-        projection = np.full((output_size, output_size), -np.inf, dtype=np.float32)
-        for s_off in slab_offsets:
-            pts_mm = (
-                pts_base_mm
-                + s_off * slab_dirs[np.newaxis, :, :]  # (1, W, 3)
-            )  # (H, W, 3)
-            pts_vox = pts_mm / vox_size[np.newaxis, np.newaxis, :]  # (H, W, 3)
-            z_v = pts_vox[:, :, 0].ravel()
-            y_v = pts_vox[:, :, 1].ravel()
-            x_v = pts_vox[:, :, 2].ravel()
-            valid = (
-                (z_v >= 0) & (z_v < shape[0] - 1) &
-                (y_v >= 0) & (y_v < shape[1] - 1) &
-                (x_v >= 0) & (x_v < shape[2] - 1)
-            )
-            vals = _map_coords(
-                volume,
-                [z_v, y_v, x_v],
-                order=1,
-                mode="constant",
-                cval=-np.inf,
-            ).astype(np.float32)
-            vals[~valid] = -np.inf
-            vals_2d = vals.reshape(output_size, output_size)
-            better = vals_2d > projection
-            projection[better] = vals_2d[better]
-        projection[np.isinf(projection) & (projection < 0)] = np.nan
-        # Transpose so arc-length is rows (top=ostium, bottom=distal end)
-        # and radial offset is columns — vessel runs top-to-bottom like Syngo.via
-        projection = projection.T  # (output_size arc-length, output_size radial)
+    # ── FAI mask: only within PCAT region AND HU in [-190, -30] ─────────────
+    # Build a pixel-level boolean mask for the PCAT annular band.
+    # The band has TWO parts:
+    #   upper pcat band: pcat_top <= row <= wall_top
+    #   lower pcat band: wall_bot <= row <= pcat_bot
+    row_idx  = np.arange(n_height, dtype=float)[:, np.newaxis]  # (n_height, 1)
+    upper_band = (row_idx >= pcat_top[np.newaxis, :]) & (row_idx <= wall_top[np.newaxis, :])
+    lower_band = (row_idx >= wall_bot[np.newaxis, :]) & (row_idx <= pcat_bot[np.newaxis, :])
+    pcat_mask  = upper_band | lower_band
+    fat_mask   = (cpr_image >= FAI_HU_MIN) & (cpr_image <= FAI_HU_MAX)
+    fai_hu     = np.where(pcat_mask & fat_mask, cpr_image, np.nan).astype(np.float32)
 
-        # ── HU windowing ─────────────────────────────────────────────────────
-        HU_lo = window_center - window_width / 2.0
-        windowed = np.clip(projection, HU_lo, HU_lo + window_width)
-        windowed_norm = (windowed - HU_lo) / window_width  # [0, 1]
-        windowed_norm = np.nan_to_num(windowed_norm, nan=0.0)  # black for sentinel
+    # ── Plot ──────────────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(14, 7), dpi=150)
 
-        # ── Save clean 512x512 PNG ────────────────────────────────────────────
-        fig, ax = plt.subplots(1, 1, figsize=(5.12, 5.12), dpi=100)
-        ax.imshow(
-            windowed_norm,
-            cmap="gray",
-            vmin=0.0,
-            vmax=1.0,
-            aspect="auto",
-            origin="upper",
-            interpolation="bilinear",
-        )
-        ax.axis("off")
-        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        out_path = output_dir / f"{prefix}_{vessel_name}_cpr_native_rot{rot_idx:02d}.png"
-        plt.savefig(str(out_path), dpi=100, bbox_inches="tight", pad_inches=0)
-        plt.close(fig)
-        print(f"[visualize] CPR native saved: {out_path.name}  (rotation {int(theta_deg)}deg)")
-        out_paths.append(out_path)
-    return out_paths
+    ax.imshow(
+        gray,
+        aspect="auto", origin="upper", cmap="gray",
+        vmin=0.0, vmax=1.0, interpolation="bilinear",
+    )
+
+    fai_cmap = _fai_colormap()
+    fai_im = ax.imshow(
+        fai_hu,
+        aspect="auto", origin="upper",
+        cmap=fai_cmap, vmin=FAI_HU_MIN, vmax=FAI_HU_MAX,
+        alpha=0.85, interpolation="bilinear",
+    )
+
+    cbar = plt.colorbar(fai_im, ax=ax, fraction=0.025, pad=0.01)
+    cbar.set_label("HU (FAI)", fontsize=10)
+    cbar.set_ticks([FAI_HU_MIN, -150, -100, -50, FAI_HU_MAX])
+
+    # ── Draw 4 curved green boundary lines ────────────────────────────────────
+    col_coords = np.arange(n_width)
+    green_hi = "#00ff00"
+    green_lo = "#00cc00"
+    ax.plot(col_coords, wall_top, color=green_hi, linewidth=1.2, alpha=0.85, label="vessel wall")
+    ax.plot(col_coords, wall_bot, color=green_hi, linewidth=1.2, alpha=0.85)
+    ax.plot(col_coords, pcat_top, color=green_lo, linewidth=1.0, alpha=0.7, linestyle="--", label="PCAT boundary")
+    ax.plot(col_coords, pcat_bot, color=green_lo, linewidth=1.0, alpha=0.7, linestyle="--")
+
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.5)
+
+    # ── Axes ticks ────────────────────────────────────────────────────────────
+    total_mm = float(arclengths[-1]) if len(arclengths) > 0 else 0.0
+    x_ticks_mm  = np.arange(0, total_mm + 1, 10.0)
+    x_tick_idxs = ((x_ticks_mm / total_mm) * (n_width - 1)).astype(int) if total_mm > 0 else [0]
+    ax.set_xticks(np.clip(x_tick_idxs, 0, n_width - 1))
+    ax.set_xticklabels([f"{t:.0f}" for t in x_ticks_mm], fontsize=9)
+    ax.set_xlabel("Distance along vessel (mm)", fontsize=11)
+
+    y_ticks_mm  = np.arange(-width_mm, width_mm + 1, 5.0)
+    y_tick_idxs = (((y_ticks_mm + width_mm) / (2 * width_mm)) * (n_height - 1)).astype(int)
+    ax.set_yticks(np.clip(y_tick_idxs, 0, n_height - 1))
+    ax.set_yticklabels([f"{t:.0f}" for t in y_ticks_mm], fontsize=9)
+    ax.set_ylabel("Lateral distance from centreline (mm)", fontsize=11)
+
+    ax.axhline(n_height // 2, color="white", linewidth=0.8, linestyle=":", alpha=0.4)
+    ax.set_title(
+        f"CPR — {vessel_name} — vessel wall + FAI overlay\n"
+        f"green solid = vessel wall  |  green dashed = PCAT boundary (±2r)  |  "
+        f"colour = FAI HU {FAI_HU_MIN:.0f}→{FAI_HU_MAX:.0f}",
+        fontsize=10, fontweight="bold",
+    )
+    plt.tight_layout()
+    out_path = output_dir / f"{prefix}_{vessel_name}_cpr_wall.png"
+    plt.savefig(str(out_path), bbox_inches="tight")
+    plt.close(fig)
+    print(f"[visualize] CPR wall PNG saved: {out_path.name}")
+    return out_path
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Output 4: HU Distribution Histogram
@@ -1436,159 +1185,347 @@ def _fai_colormap() -> mcolors.LinearSegmentedColormap:
     return cmap
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Horos-exact CPR helpers
+# Mirrors: N3BezierCoreCreateCurveWithNodes → N3BezierCoreGetVectorInfo →
+#          CPRVolumeDataLinearInterpolatedFloatAtDicomVector →
+#          CPRStraightenedOperation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _bezier_fit_centerline(
+    waypoints_mm: np.ndarray,
+) -> Tuple["CubicSpline", float]:
+    """
+    Fit a C2-smooth cubic spline through centerline waypoints in DICOM mm-space.
+    Mirrors N3BezierCoreCreateCurveWithNodes(..., N3BezierNodeOpenEndsStyle).
+
+    Parameters
+    ----------
+    waypoints_mm : (N, 3) float64 — centerline points in DICOM mm [z, y, x]
+
+    Returns
+    -------
+    cs         : CubicSpline parameterised by arc-length s in [0, total_len]
+    total_len  : float — total arc-length of the fitted curve in mm
+    """
+    if len(waypoints_mm) < 2:
+        raise ValueError("Need at least 2 waypoints")
+    # Remove duplicate consecutive points to avoid zero-length segments
+    unique = [waypoints_mm[0]]
+    for p in waypoints_mm[1:]:
+        if np.linalg.norm(p - unique[-1]) > 1e-6:
+            unique.append(p)
+    pts = np.array(unique, dtype=np.float64)
+    if len(pts) < 2:
+        raise ValueError("Degenerate centerline — all points are co-located")
+    # Chord-length parameterisation (arc-length approximation on raw points)
+    diffs = np.diff(pts, axis=0)
+    seg_lens = np.linalg.norm(diffs, axis=1)
+    s = np.concatenate([[0.0], np.cumsum(seg_lens)])
+    total_len = float(s[-1])
+    if total_len < 1e-3:
+        raise ValueError(f"Degenerate centerline — total length {total_len:.4f} mm")
+    # 'not-a-knot' boundary: matches Horos open-ends style (tangents extrapolated,
+    # not clamped), giving natural curve continuation past end waypoints.
+    cs = CubicSpline(s, pts, bc_type='not-a-knot')
+    return cs, total_len
+
+
+def _sample_bezier_frame(
+    cs: "CubicSpline",
+    total_len: float,
+    n_cols: int,
+    initial_normal: Optional[np.ndarray] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Sample the spline at n_cols uniformly-spaced arc-length positions and
+    compute a rotation-minimising (Bishop / parallel-transport) frame at each.
+    Mirrors N3BezierCoreGetVectorInfo(bezierCore, spacing, 0, initialNormal, ...).
+
+    Parameters
+    ----------
+    cs             : CubicSpline from _bezier_fit_centerline
+    total_len      : arc-length of the curve in mm
+    n_cols         : number of output columns (= pixelsWide in Horos)
+    initial_normal : (3,) unit vector — initial N direction (perpendicular to T[0]).
+                     If None, a stable default is chosen automatically.
+
+    Returns
+    -------
+    s          : (n_cols,) arc-length sample positions
+    positions  : (n_cols, 3) DICOM mm positions
+    tangents   : (n_cols, 3) unit tangent vectors
+    normals    : (n_cols, 3) Bishop normal vectors (parallel-transported)
+    binormals  : (n_cols, 3) B = T × N
+    """
+    s = np.linspace(0.0, total_len, n_cols)
+    positions = cs(s)                        # (n_cols, 3)
+    T_raw     = cs(s, 1)                     # analytic first derivative
+    norms     = np.linalg.norm(T_raw, axis=1, keepdims=True) + 1e-15
+    tangents  = T_raw / norms                # unit tangents (n_cols, 3)
+
+    # — Initial normal — perpendicular to T[0] ─────────────────────────────
+    if initial_normal is not None:
+        # Project onto plane perpendicular to T[0], re-normalise
+        n0 = initial_normal - np.dot(initial_normal, tangents[0]) * tangents[0]
+        n_norm = np.linalg.norm(n0)
+        if n_norm < 1e-8:
+            initial_normal = None  # degenerate — fall back
+        else:
+            n0 = n0 / n_norm
+    if initial_normal is None:
+        # Choose a stable reference axis (Horos uses world 'up' = +Y)
+        ref = np.array([0.0, 1.0, 0.0])
+        if abs(np.dot(tangents[0], ref)) > 0.95:
+            ref = np.array([1.0, 0.0, 0.0])
+        n0 = np.cross(tangents[0], ref)
+        n0 /= np.linalg.norm(n0) + 1e-15
+
+    # — Parallel transport (Bishop frame) ─────────────────────────────────
+    # Each normal is the previous normal projected onto the plane perpendicular
+    # to the new tangent — the rotation-minimising frame used by Horos.
+    normals   = np.empty((n_cols, 3), dtype=np.float64)
+    binormals = np.empty((n_cols, 3), dtype=np.float64)
+    normals[0] = n0
+    b0 = np.cross(tangents[0], n0)
+    b0_norm = np.linalg.norm(b0)
+    binormals[0] = b0 / b0_norm if b0_norm > 1e-8 else np.array([0.0, 0.0, 1.0])
+
+    for i in range(1, n_cols):
+        # Project previous normal onto plane perp to new tangent
+        ni = normals[i - 1] - np.dot(normals[i - 1], tangents[i]) * tangents[i]
+        ni_norm = np.linalg.norm(ni)
+        if ni_norm > 1e-8:
+            normals[i] = ni / ni_norm
+        else:
+            normals[i] = normals[i - 1]
+        bi = np.cross(tangents[i], normals[i])
+        bi_norm = np.linalg.norm(bi)
+        binormals[i] = bi / bi_norm if bi_norm > 1e-8 else binormals[i - 1]
+
+    return s, positions, tangents, normals, binormals
+
+
+def _sample_volume_trilinear(
+    volume: np.ndarray,
+    vox_size: np.ndarray,
+    pts_mm: np.ndarray,
+) -> np.ndarray:
+    """
+    Trilinear interpolation of the CT volume at arbitrary DICOM mm positions.
+    Mirrors CPRVolumeDataLinearInterpolatedFloatAtDicomVector.
+
+    Parameters
+    ----------
+    volume   : (Z, Y, X) float32 CT HU volume
+    vox_size : (3,) [sz, sy, sx] mm per voxel
+    pts_mm   : (..., 3) float64 sample points in DICOM mm [z, y, x]
+
+    Returns
+    -------
+    vals : (...) float32 — HU values; NaN for out-of-bounds points
+    """
+    shape_in = pts_mm.shape[:-1]
+    pts_flat = pts_mm.reshape(-1, 3)              # (M, 3)
+    # Convert mm → voxel coordinates (volumeTransform in Horos)
+    pts_vox = pts_flat / vox_size[np.newaxis, :]  # (M, 3)
+    z_v = pts_vox[:, 0]
+    y_v = pts_vox[:, 1]
+    x_v = pts_vox[:, 2]
+    vol_shape = np.array(volume.shape, dtype=np.float64)
+    valid = (
+        (z_v >= 0) & (z_v <= vol_shape[0] - 1) &
+        (y_v >= 0) & (y_v <= vol_shape[1] - 1) &
+        (x_v >= 0) & (x_v <= vol_shape[2] - 1)
+    )
+    # map_coordinates order=1 = trilinear — exact equivalent of Horos
+    # CPRVolumeDataLinearInterpolatedFloatAtVolumeCoordinate
+    vals = map_coordinates(
+        volume,
+        [z_v, y_v, x_v],
+        order=1,
+        mode="constant",
+        cval=np.nan,
+    ).astype(np.float32)
+    vals[~valid] = np.nan
+    return vals.reshape(shape_in)
+
+
+def _build_cpr_image(
+    volume: np.ndarray,
+    vox_size: np.ndarray,
+    positions: np.ndarray,
+    normals: np.ndarray,
+    binormals: np.ndarray,
+    n_rows: int,
+    row_extent_mm: float,
+    slab_mm: float = 3.0,
+) -> np.ndarray:
+    """
+    Build a 2-D straightened CPR image by sampling the CT volume on a
+    rectangular grid in the (normal, binormal) plane at each centerline point.
+    Mirrors CPRStraightenedOperation execution.
+
+    Layout (matches Horos CPRStraightenedView):
+      - columns  = arc-length axis (one column per centerline sample)
+      - rows     = lateral axis along normals direction
+      - slab MIP = thin-slab MaxIP along binormal direction
+                   (slabWidth in CPRGeneratorRequest)
+
+    Parameters
+    ----------
+    volume        : (Z, Y, X) float32 CT HU
+    vox_size      : (3,) [sz, sy, sx] mm/voxel
+    positions     : (n_cols, 3) centerline positions in mm
+    normals       : (n_cols, 3) Bishop normal — defines the row axis
+    binormals     : (n_cols, 3) Bishop binormal — defines the slab direction
+    n_rows        : int — number of output rows (= pixelsHigh in Horos)
+    row_extent_mm : float — half-width of the row axis in mm
+    slab_mm       : float — total slab thickness in mm for MIP (slabWidth)
+
+    Returns
+    -------
+    img : (n_rows, n_cols) float32 — HU image, NaN for out-of-bounds
+    """
+    n_cols = len(positions)
+    mean_sp = float(np.mean(vox_size))
+    n_slab  = max(1, int(np.round(slab_mm / mean_sp)))
+    slab_offsets = np.linspace(-slab_mm / 2.0, slab_mm / 2.0, n_slab)  # mm
+
+    # Row sample coords: [+row_extent_mm … 0 … -row_extent_mm]
+    # positive = displayed at top when origin='upper' in imshow
+    row_offsets = np.linspace(row_extent_mm, -row_extent_mm, n_rows)   # (n_rows,)
+
+    # Base sample grid: (n_rows, n_cols, 3)
+    pts_base = (
+        positions[np.newaxis, :, :]                           # (1, n_cols, 3)
+        + row_offsets[:, np.newaxis, np.newaxis]              # (n_rows, 1, 1)
+        * normals[np.newaxis, :, :]                           # (1, n_cols, 3)
+    )  # → (n_rows, n_cols, 3)
+
+    if n_slab == 1:
+        img = _sample_volume_trilinear(volume, vox_size, pts_base)  # (n_rows, n_cols)
+        return img
+
+    # MIP over slab (along binormal)
+    slab_max = np.full((n_rows, n_cols), -np.inf, dtype=np.float32)
+    for s_off in slab_offsets:
+        pts = pts_base + s_off * binormals[np.newaxis, :, :]  # (n_rows, n_cols, 3)
+        vals = _sample_volume_trilinear(volume, vox_size, pts)  # (n_rows, n_cols)
+        better   = vals > slab_max
+        not_nan  = ~np.isnan(vals)
+        slab_max[better & not_nan] = vals[better & not_nan]
+
+    slab_max[np.isneginf(slab_max)] = np.nan
+    return slab_max
+
+
 def _compute_cpr_data(
     volume: np.ndarray,
     centerline_ijk: np.ndarray,
     spacing_mm: List[float],
     slab_thickness_mm: float = 3.0,
     width_mm: float = 25.0,
+    initial_normal: Optional[np.ndarray] = None,
+    pixels_wide: int = 512,
+    pixels_high: int = 512,
+    aorta_prepend_mm: float = 5.0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
     """
-    Compute Bishop-frame CPR volume and associated frame data.
+    Horos-exact straightened CPR pipeline.
 
-    Used by both render_cpr_fai() (batch/Agg) and cpr_browser.py (interactive/TkAgg).
+    Steps:
+      1. _bezier_fit_centerline  — N3BezierCoreCreateCurveWithNodes
+      2. _sample_bezier_frame    — N3BezierCoreGetVectorInfo
+      3. _build_cpr_image        — CPRStraightenedOperation
 
     Parameters
     ----------
-    volume          : (Z, Y, X) HU float32
-    centerline_ijk  : (N, 3) centerline voxel indices [z, y, x]
-    spacing_mm      : [sz, sy, sx]
-    slab_thickness_mm : total slab thickness for MIP along tangent (mm)
-    width_mm        : half-width of the CPR / cross-section plane (mm)
+    volume           : (Z, Y, X) HU float32
+    centerline_ijk   : (N, 3) centerline voxel indices [z, y, x]
+    spacing_mm       : [sz, sy, sx]
+    slab_thickness_mm: total slab thickness for MIP along binormal (mm)
+    width_mm         : half-width of lateral (row) axis in mm
+    initial_normal   : (3,) optional initial normal for the Bishop frame
+    pixels_wide      : output columns (arc-length axis)  — default 512
+    pixels_high      : output rows    (lateral axis)     — default 512
 
-    Returns
+    Returns  (same signature as before for compatibility)
     -------
-    cpr_volume  : (N_pts, n_height, n_width) float32 — sampled HU values
-    N_frame     : (N_pts, 3) Bishop normal vectors
-    B_frame     : (N_pts, 3) Bishop binormal vectors
-    cl_mm       : (N_pts, 3) centerline in mm [z, y, x]
-    arclengths  : (N_pts,) cumulative arc-length in mm
-    n_height    : int
-    n_width     : int
+    cpr_volume : (pixels_wide, pixels_high) float32
+                 Indexed as [arc_col, lateral_row]; transpose for imshow.
+    N_frame    : (pixels_wide, 3) Bishop normal vectors
+    B_frame    : (pixels_wide, 3) Bishop binormal vectors
+    cl_mm      : (pixels_wide, 3) sampled centerline positions in mm
+    arclengths : (pixels_wide,) cumulative arc-length in mm
+    n_height   : pixels_high
+    n_width    : pixels_wide
     """
-    sz, sy, sx = spacing_mm
-    vox_size = np.array([sz, sy, sx], dtype=np.float64)  # (z, y, x) mm/voxel
-    shape = np.array(volume.shape, dtype=int)             # (Z, Y, X)
+    vox_size = np.array(spacing_mm, dtype=np.float64)  # [sz, sy, sx]
 
-    # ── Pixel grid dimensions ──────────────────────────────────────────────
-    mean_sp_xy = float(np.mean(vox_size[1:]))   # lateral voxel size (mm)
-    n_width  = max(int(np.ceil(2.0 * width_mm  / mean_sp_xy)), 50)
-    n_height = n_width   # square cross-section plane
-    height_mm = width_mm  # symmetric about centreline
+    # Step 1: Convert voxel coords → DICOM mm, fit spline
+    cl_mm_raw = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]
 
-    # ── Fit cubic spline through raw centerline (Horos-style Bézier equivalent) ─
-    # Convert to mm, then fit CubicSpline for smooth sub-voxel positions and
-    # analytically exact tangents — eliminates staircase from integer voxel indices.
-    cl_mm_raw = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]  # (N, 3)
-    diffs_raw = np.diff(cl_mm_raw, axis=0)
-    seg_lens_raw = np.linalg.norm(diffs_raw, axis=1)
-    s_raw = np.concatenate([[0.0], np.cumsum(seg_lens_raw)])  # arc-length param
-    total_len = s_raw[-1]
-    if total_len < 1.0:
-        # Degenerate: fall back to raw centerline
-        cl_mm = cl_mm_raw
-        N_pts = len(centerline_ijk)
-        T = np.zeros((N_pts, 3), dtype=np.float64)
-        T[1:-1] = cl_mm[2:] - cl_mm[:-2]
-        T[0]    = cl_mm[1]  - cl_mm[0]
-        T[-1]   = cl_mm[-1] - cl_mm[-2]
-        norms   = np.linalg.norm(T, axis=1, keepdims=True) + 1e-12
-        T      /= norms
-        s_uniform = s_raw
-    else:
-        cs = CubicSpline(s_raw, cl_mm_raw, bc_type='not-a-knot')
-        # Resample at uniform ~0.5mm steps (matches Horos CPRStraightenedOperation sample spacing)
-        ds = 0.5  # mm per step — sub-voxel resolution
-        N_pts = max(int(np.ceil(total_len / ds)), len(centerline_ijk))
-        s_uniform = np.linspace(0.0, total_len, N_pts)
-        cl_mm = cs(s_uniform)          # (N_pts, 3) smooth sub-voxel positions
-        # Analytic tangents from spline first derivative — no staircase noise
-        T_raw = cs(s_uniform, 1)       # (N_pts, 3)
-        norms = np.linalg.norm(T_raw, axis=1, keepdims=True) + 1e-12
-        T = T_raw / norms              # unit tangents
+    # ── Task 5: Prepend aortic approach segment ─────────────────────────
+    # Extrapolate backward from the ostium along the initial vessel direction.
+    # This makes the aortic root visible at the left edge of the CPR.
+    if aorta_prepend_mm > 0.0 and len(cl_mm_raw) >= 2:
+        mean_sp_mm = float(np.mean(vox_size))
+        n_prepend  = max(1, int(np.round(aorta_prepend_mm / mean_sp_mm)))
+        d0 = cl_mm_raw[1] - cl_mm_raw[0]
+        d0_norm = np.linalg.norm(d0)
+        if d0_norm > 1e-9:
+            d0 /= d0_norm
+            offsets = np.arange(n_prepend, 0, -1, dtype=np.float64)[:, np.newaxis] * mean_sp_mm
+            prepend_pts = cl_mm_raw[0][np.newaxis, :] - d0[np.newaxis, :] * offsets
+            cl_mm_raw = np.vstack([prepend_pts, cl_mm_raw])
+    try:
+        cs, total_len = _bezier_fit_centerline(cl_mm_raw)
+    except ValueError as e:
+        print(f"[visualize] _compute_cpr_data: {e}")
+        empty = np.full((pixels_wide, pixels_high), np.nan, dtype=np.float32)
+        z = np.zeros((pixels_wide, 3))
+        return empty, z, z, cl_mm_raw[:pixels_wide], np.linspace(0, 1, pixels_wide), pixels_high, pixels_wide
 
-    # ── Bishop frame (parallel transport — rotation-minimising) ────────────
-    N_frame = np.zeros((N_pts, 3), dtype=np.float64)  # normal
-    B_frame = np.zeros((N_pts, 3), dtype=np.float64)  # binormal
+    # Step 2: Sample frame at exactly pixels_wide equally-spaced positions
+    # spacing_mm_per_col = total_len / pixels_wide  (Horos: _sampleSpacing)
+    s, positions, tangents, N_frame, B_frame = _sample_bezier_frame(
+        cs, total_len, pixels_wide, initial_normal=initial_normal,
+    )
 
-    ref0 = np.array([0.0, 0.0, 1.0])
-    if abs(np.dot(T[0], ref0)) > 0.9:
-        ref0 = np.array([0.0, 1.0, 0.0])
-    n0 = np.cross(T[0], ref0)
-    n0 /= np.linalg.norm(n0) + 1e-12
-    N_frame[0] = n0
-    B_frame[0] = np.cross(T[0], N_frame[0])
+    # Step 3: Build CPR image — (pixels_high, pixels_wide) float32
+    cpr_img = _build_cpr_image(
+        volume, vox_size,
+        positions, N_frame, B_frame,
+        n_rows=pixels_high,
+        row_extent_mm=width_mm,
+        slab_mm=slab_thickness_mm,
+    )  # (pixels_high, pixels_wide)
 
-    for i in range(1, N_pts):
-        ni = N_frame[i - 1] - np.dot(N_frame[i - 1], T[i]) * T[i]
-        norm_ni = np.linalg.norm(ni)
-        if norm_ni > 1e-8:
-            N_frame[i] = ni / norm_ni
-        else:
-            N_frame[i] = N_frame[i - 1]
-        B_frame[i] = np.cross(T[i], N_frame[i])
-        bnorm = np.linalg.norm(B_frame[i])
-        if bnorm > 1e-8:
-            B_frame[i] /= bnorm
+    # ── Task 4 (improved): Fix vertical stripe artifacts ───────────────────────────
+    # Linearly interpolate any column where >30% of rows are NaN.
+    # This covers both fully-OOB (100% NaN) and partially-OOB columns.
+    col_nan_frac = np.mean(np.isnan(cpr_img), axis=0)          # (pixels_wide,)
+    bad_cols  = np.where(col_nan_frac > 0.30)[0]
+    good_cols = np.where(col_nan_frac <= 0.30)[0]
+    if bad_cols.size > 0 and good_cols.size > 0:
+        for col in bad_cols:
+            left_idx  = good_cols[good_cols  < col]
+            right_idx = good_cols[good_cols  > col]
+            if left_idx.size > 0 and right_idx.size > 0:
+                lc, rc = left_idx[-1], right_idx[0]
+                t = (col - lc) / float(rc - lc)
+                cpr_img[:, col] = (1.0 - t) * cpr_img[:, lc] + t * cpr_img[:, rc]
+            elif left_idx.size > 0:
+                cpr_img[:, col] = cpr_img[:, left_idx[-1]]
+            else:
+                cpr_img[:, col] = cpr_img[:, right_idx[0]]
 
-    # ── Slab MIP offsets along tangent ───────────────────────────────────
-    n_slab = max(1, int(np.ceil(slab_thickness_mm / mean_sp_xy)))
-    if n_slab > 1:
-        slab_offsets_mm = np.linspace(-slab_thickness_mm / 2.0,
-                                       slab_thickness_mm / 2.0,
-                                       n_slab)
-    else:
-        slab_offsets_mm = np.array([0.0])
+    # Transpose → (pixels_wide, pixels_high) for indexed [col, row] access
+    # render functions transpose back to (n_rows, n_cols) for imshow
+    cpr_volume = cpr_img.T  # (pixels_wide, pixels_high)
 
-    # Sampling grids: u along N (width), v along B (height)
-    u_range = np.linspace(-width_mm,  width_mm,  n_width)   # (n_width,)
-    v_range = np.linspace(-height_mm, height_mm, n_height)  # (n_height,)
-    UU, VV = np.meshgrid(u_range, v_range, indexing="xy")  # (n_height, n_width)
-
-    # ── Sample volume at each centreline point ─────────────────────────────
-    cpr_volume = np.full((N_pts, n_height, n_width), np.nan, dtype=np.float32)
-
-    for i in range(N_pts):
-        pts_base_mm = (
-            cl_mm[i][np.newaxis, np.newaxis, :]                               # (1,1,3)
-            + UU[:, :, np.newaxis] * N_frame[i][np.newaxis, np.newaxis, :]   # (H,W,3)
-            + VV[:, :, np.newaxis] * B_frame[i][np.newaxis, np.newaxis, :]   # (H,W,3)
-        )  # -> (n_height, n_width, 3)
-
-        slab_max = np.full((n_height, n_width), -np.inf, dtype=np.float32)
-
-        for s_off in slab_offsets_mm:
-            pts_mm = pts_base_mm + s_off * T[i][np.newaxis, np.newaxis, :]
-            pts_vox = pts_mm / vox_size[np.newaxis, np.newaxis, :]
-
-            z_v = pts_vox[:, :, 0].ravel()
-            y_v = pts_vox[:, :, 1].ravel()
-            x_v = pts_vox[:, :, 2].ravel()
-            valid = (
-                (z_v >= 0) & (z_v < shape[0] - 1) &
-                (y_v >= 0) & (y_v < shape[1] - 1) &
-                (x_v >= 0) & (x_v < shape[2] - 1)
-            )
-            vals = map_coordinates(
-                volume,
-                [z_v, y_v, x_v],
-                order=1,
-                mode="constant",
-                cval=np.nan,
-            ).astype(np.float32)
-            vals[~valid] = np.nan
-            vals_2d = vals.reshape(n_height, n_width)
-            better    = vals_2d > slab_max
-            not_nan   = ~np.isnan(vals_2d)
-            slab_max[better & not_nan] = vals_2d[better & not_nan]
-            slab_max[np.isinf(slab_max) & (slab_max < 0)] = np.nan
-
-        cpr_volume[i] = slab_max
-
-    # ── Arc-lengths ─────────────────────────────────────────────────────────────
-    arclengths = s_uniform  # already computed from spline resampling above
-
-    return cpr_volume, N_frame, B_frame, cl_mm, arclengths, n_height, n_width
+    return cpr_volume, N_frame, B_frame, positions, s, pixels_high, pixels_wide
 
 
 def _compute_arclengths(centerline_ijk: np.ndarray, spacing_mm: List[float]) -> np.ndarray:
