@@ -237,26 +237,3 @@ def export_combined_voi_raw(
         sentinel_hu=sentinel_hu,
         dtype=dtype,
     )
-
-
-# ─────────────────────────────────────────────
-# Load helper (for downstream analysis)
-# ─────────────────────────────────────────────
-
-def load_voi_raw(raw_path: str | Path, json_path: str | Path) -> Tuple[np.ndarray, Dict]:
-    """
-    Load a previously exported VOI .raw file back into numpy.
-
-    Returns
-    -------
-    volume : int16 (Z, Y, X) array
-    meta   : the companion metadata dict
-    """
-    with open(json_path) as f:
-        meta = json.load(f)
-
-    dtype = np.dtype(meta["dtype"])
-    shape = tuple(meta["shape_zyx"])
-    volume = np.fromfile(str(raw_path), dtype=dtype).reshape(shape)
-
-    return volume, meta
