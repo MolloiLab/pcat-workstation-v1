@@ -59,7 +59,7 @@ import matplotlib
 matplotlib.use("TkAgg")  # Use interactive backend
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.widgets import Slider, Button, RadioButtons
+from matplotlib.widgets import Slider
 
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))

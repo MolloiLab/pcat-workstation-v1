@@ -36,7 +36,9 @@ except ImportError:
         "Install with: pip install pyvista"
     )
 
-matplotlib.use("Agg")   # Non-interactive backend for batch rendering
+# NOTE: Backend is NOT set here. Callers that need non-interactive
+# rendering (run_pipeline.py) set matplotlib.use('Agg') before importing
+# this module. Interactive tools (cpr_browser.py) set TkAgg instead.
 
 FAI_HU_MIN = -190.0
 FAI_HU_MAX = -30.0
@@ -1262,15 +1264,15 @@ def _compute_cpr_data(
     pixels_wide: int = 512,
     pixels_high: int = 512,
     aorta_prepend_mm: float = 5.0,
+    rotation_deg: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
     """
-    Horos-exact straightened CPR pipeline.
-
+    Straightened CPR pipeline (Kanitsar et al. 2002 / Horos CPRStraightenedOperation).
     Steps:
-      1. _bezier_fit_centerline  — N3BezierCoreCreateCurveWithNodes
-      2. _sample_bezier_frame    — N3BezierCoreGetVectorInfo
-      3. _build_cpr_image        — CPRStraightenedOperation
-
+      1. _bezier_fit_centerline  — C2-smooth spline through centerline
+      2. _sample_bezier_frame    — Bishop / parallel-transport frame
+      3. Rotate frame by rotation_deg around tangent (rotational CPR)
+      4. _build_cpr_image        — sample CT volume on perpendicular planes
     Parameters
     ----------
     volume           : (Z, Y, X) HU float32
@@ -1281,26 +1283,25 @@ def _compute_cpr_data(
     initial_normal   : (3,) optional initial normal for the Bishop frame
     pixels_wide      : output columns (arc-length axis)  — default 512
     pixels_high      : output rows    (lateral axis)     — default 512
-
-    Returns  (same signature as before for compatibility)
+    aorta_prepend_mm : mm to extrapolate backward from ostium (aortic root)
+    rotation_deg     : rotation angle (degrees) of the cutting plane around
+                       the vessel centerline.  0° = default Bishop frame.
+                       Enables rotational CPR à la Kanitsar / Stanford 3DQ.
+    
+    Returns
     -------
     cpr_volume : (pixels_wide, pixels_high) float32
                  Indexed as [arc_col, lateral_row]; transpose for imshow.
-    N_frame    : (pixels_wide, 3) Bishop normal vectors
-    B_frame    : (pixels_wide, 3) Bishop binormal vectors
+    N_frame    : (pixels_wide, 3) (rotated) normal vectors
+    B_frame    : (pixels_wide, 3) (rotated) binormal vectors
     cl_mm      : (pixels_wide, 3) sampled centerline positions in mm
     arclengths : (pixels_wide,) cumulative arc-length in mm
     n_height   : pixels_high
     n_width    : pixels_wide
     """
     vox_size = np.array(spacing_mm, dtype=np.float64)  # [sz, sy, sx]
-
-    # Step 1: Convert voxel coords → DICOM mm, fit spline
     cl_mm_raw = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]
-
-    # ── Task 5: Prepend aortic approach segment ─────────────────────────
-    # Extrapolate backward from the ostium along the initial vessel direction.
-    # This makes the aortic root visible at the left edge of the CPR.
+    # Prepend aortic approach segment (extrapolate backward from ostium)
     if aorta_prepend_mm > 0.0 and len(cl_mm_raw) >= 2:
         mean_sp_mm = float(np.mean(vox_size))
         n_prepend  = max(1, int(np.round(aorta_prepend_mm / mean_sp_mm)))
@@ -1310,6 +1311,9 @@ def _compute_cpr_data(
             d0 /= d0_norm
             offsets = np.arange(n_prepend, 0, -1, dtype=np.float64)[:, np.newaxis] * mean_sp_mm
             prepend_pts = cl_mm_raw[0][np.newaxis, :] - d0[np.newaxis, :] * offsets
+            # Clip prepended points to volume bounds to avoid OOB stripes
+            vol_max_mm = (np.array(volume.shape, dtype=np.float64) - 1) * vox_size
+            prepend_pts = np.clip(prepend_pts, 0.0, vol_max_mm)
             cl_mm_raw = np.vstack([prepend_pts, cl_mm_raw])
     try:
         cs, total_len = _bezier_fit_centerline(cl_mm_raw)
@@ -1318,14 +1322,21 @@ def _compute_cpr_data(
         empty = np.full((pixels_wide, pixels_high), np.nan, dtype=np.float32)
         z = np.zeros((pixels_wide, 3))
         return empty, z, z, cl_mm_raw[:pixels_wide], np.linspace(0, 1, pixels_wide), pixels_high, pixels_wide
-
-    # Step 2: Sample frame at exactly pixels_wide equally-spaced positions
-    # spacing_mm_per_col = total_len / pixels_wide  (Horos: _sampleSpacing)
+    # Step 2: Sample frame at pixels_wide equally-spaced arc-length positions
     s, positions, tangents, N_frame, B_frame = _sample_bezier_frame(
         cs, total_len, pixels_wide, initial_normal=initial_normal,
     )
 
-    # Step 3: Build CPR image — (pixels_high, pixels_wide) float32
+    # Step 3: Rotational CPR — rotate N, B around T by rotation_deg
+    if abs(rotation_deg) > 1e-6:
+        theta = np.deg2rad(rotation_deg)
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        N_rot =  cos_t * N_frame + sin_t * B_frame
+        B_rot = -sin_t * N_frame + cos_t * B_frame
+        N_frame = N_rot
+        B_frame = B_rot
+
+    # Step 4: Build CPR image — (pixels_high, pixels_wide) float32
     cpr_img = _build_cpr_image(
         volume, vox_size,
         positions, N_frame, B_frame,
@@ -1333,31 +1344,36 @@ def _compute_cpr_data(
         row_extent_mm=width_mm,
         slab_mm=slab_thickness_mm,
     )  # (pixels_high, pixels_wide)
-
-    # ── Task 4 (improved): Fix vertical stripe artifacts ───────────────────────────
-    # Linearly interpolate any column where >30% of rows are NaN.
-    # This covers both fully-OOB (100% NaN) and partially-OOB columns.
-    col_nan_frac = np.mean(np.isnan(cpr_img), axis=0)          # (pixels_wide,)
+    # ── Fix vertical stripe artifacts ──────────────────────────────────────
+    # Strategy: for each column with >30% NaN rows, replace NaN values using
+    # per-row linear interpolation from nearest valid columns.  This is more
+    # robust than the previous per-column copy because it preserves the lateral
+    # structure at each row independently.
+    col_nan_frac = np.mean(np.isnan(cpr_img), axis=0)  # (pixels_wide,)
     bad_cols  = np.where(col_nan_frac > 0.30)[0]
     good_cols = np.where(col_nan_frac <= 0.30)[0]
-    if bad_cols.size > 0 and good_cols.size > 0:
+    if bad_cols.size > 0 and good_cols.size >= 2:
+        # Row-wise interpolation: for each row, interpolate NaN columns
+        # from the nearest good columns on either side
+        for row in range(cpr_img.shape[0]):
+            row_data = cpr_img[row, :]
+            nan_mask = np.isnan(row_data)
+            if nan_mask.all() or (~nan_mask).all():
+                continue
+            valid_idx = np.where(~nan_mask)[0]
+            # np.interp extrapolates with edge values by default
+            row_data[nan_mask] = np.interp(
+                np.where(nan_mask)[0], valid_idx, row_data[valid_idx]
+            )
+            cpr_img[row, :] = row_data
+    elif bad_cols.size > 0 and good_cols.size > 0:
+        # Fallback: too few good columns — use nearest-neighbour fill
         for col in bad_cols:
-            left_idx  = good_cols[good_cols  < col]
-            right_idx = good_cols[good_cols  > col]
-            if left_idx.size > 0 and right_idx.size > 0:
-                lc, rc = left_idx[-1], right_idx[0]
-                t = (col - lc) / float(rc - lc)
-                cpr_img[:, col] = (1.0 - t) * cpr_img[:, lc] + t * cpr_img[:, rc]
-            elif left_idx.size > 0:
-                cpr_img[:, col] = cpr_img[:, left_idx[-1]]
-            else:
-                cpr_img[:, col] = cpr_img[:, right_idx[0]]
-
+            nearest = good_cols[np.argmin(np.abs(good_cols - col))]
+            cpr_img[:, col] = cpr_img[:, nearest]
     # Transpose → (pixels_wide, pixels_high) for indexed [col, row] access
     # render functions transpose back to (n_rows, n_cols) for imshow
     cpr_volume = cpr_img.T  # (pixels_wide, pixels_high)
-
-    return cpr_volume, N_frame, B_frame, positions, s, pixels_high, pixels_wide
 
 
 
