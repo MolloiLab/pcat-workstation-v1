@@ -1375,6 +1375,8 @@ def _compute_cpr_data(
     # render functions transpose back to (n_rows, n_cols) for imshow
     cpr_volume = cpr_img.T  # (pixels_wide, pixels_high)
 
+    return cpr_volume, N_frame, B_frame, positions, s, pixels_high, pixels_wide
+
 
 
 def _add_value_labels(ax: plt.Axes, values: List, fmt: str = "{:.1f}") -> None:
