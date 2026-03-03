@@ -6,13 +6,13 @@ Automatically measures fat around coronary arteries from a cardiac CT scan (CCTA
 
 ## What does it do?
 
-1. Finds your coronary arteries (LAD, LCX, RCA) automatically
+1. Finds your coronary arteries (LAD, LCX, RCA) automatically via TotalSegmentator
 2. Lets you review and refine the coronary seed locations
-3. Extracts centerlines, estimates vessel radii, and builds pericoronary VOIs
-4. Lets you review and adjust centerlines, vessel wall contours, and PCAT volumes
-5. Lets you browse interactive CPR images per vessel
-6. Generates the PCAT (pericoronary fat) volume and measures the **Fat Attenuation Index (FAI)**
-7. Saves images and statistics you can review and report
+3. Computes Frangi vesselness filtering and extracts centerlines
+4. Extracts real vessel wall contours via polar-transform boundary detection
+5. Lets you correct contours in a game-style interactive editor
+6. Builds PCAT VOI from contours (3× vessel radius) and computes FAI
+7. Generates CPR images, histograms, and statistics
 
 > **FAI risk threshold: −70.1 HU.** Values above this (less negative) = higher cardiovascular inflammation risk (Oikonomou et al., Lancet 2018).
 
@@ -60,14 +60,15 @@ A window opens showing 3 MPR planes (axial, coronal, sagittal) with the auto-det
 | Key / Action | Effect |
 |---|---|
 | `1` / `2` / `3` | Switch active vessel (LAD / LCX / RCA) |
-| Click on any plane | Move the selected seed to that location |
+| Click near a seed | Drag to reposition |
+| Click elsewhere | Add new waypoint |
 | `d` | Delete the nearest waypoint |
 | `u` | Undo last action |
 | `r` | Reset current vessel to original seeds |
 | `c` | Clear warning messages |
-| `w` / `W` | Increase / decrease window width |
-| `l` / `L` | Increase / decrease window level |
-| `s` | **Save seeds & continue pipeline** |
+| `w` / `W` | Window width wider / narrower |
+| `l` / `L` | Window level brighter / darker |
+| `s` | **Save seeds (JSON) & continue pipeline** |
 | `q` | Quit without saving |
 | Scroll wheel | Change slice |
 
@@ -75,42 +76,49 @@ A window opens showing 3 MPR planes (axial, coronal, sagittal) with the auto-det
 
 Computes a multi-scale Frangi vesselness filter on a ROI-cropped volume around the seed points. Uses MPS (Metal Performance Shaders) on Apple Silicon if PyTorch is installed, otherwise falls back to CPU via scikit-image.
 
-### Stage 4 — Per-vessel processing (LAD, LCX, RCA)
+### Stage 4 — Per-vessel processing (~5 s total)
 
-For each vessel the pipeline automatically:
+For each vessel (LAD, LCX, RCA) the pipeline automatically:
 
-1. Extracts the centerline from the vesselness map via FMM/Dijkstra shortest path
+1. Extracts the centerline from the vesselness map via FMM/Dijkstra shortest path (with cubic-spline fallback if Frangi yields too few points)
 2. Clips to the proximal segment (LAD/LCX: 5–45 mm, RCA: 10–50 mm)
-3. Estimates vessel radii along the centerline via EDT
-4. Builds a tubular VOI (outer radius = 3× lumen radius)
-5. Computes FAI statistics (mean HU, fat fraction, voxel count)
-6. Generates CPR images (FAI overlay, vessel wall overlay, DICOM secondary capture)
-7. Plots HU histogram and radial HU profile
+3. Estimates vessel radii along the centerline
+4. Extracts vessel wall contours via polar-transform boundary detection using half-maximum descent with Chan-Vese level-set fallback
 
-### Stage 5 — Coronary Artery Contour Editor
+### Stage 5 — Centerline verification
 
-Opens after all vessels are processed. Shows 3 MPR planes with vessel centerlines and wall contours overlaid.
+Generates a static overlay image showing extracted centerlines on top of the CT volume, with TotalSegmentator coronary segmentation mask if available. Saved to `plots/`.
 
-**Vessel colors:** LAD = red · LCX = blue · RCA = green
+### Stage 6 — Contour Game Editor
+
+Opens a game-style GUI for reviewing and correcting the auto-extracted vessel wall contours before PCAT computation.
+
+**Vessel colors:** LAD = red-orange · LCX = blue · RCA = green
 
 | Key / Action | Effect |
 |---|---|
 | `1` / `2` / `3` | Switch active vessel |
-| Click + drag a centerline point | Reposition that point; vessel mask updates on release |
-| `[` / `]` | Decrease / increase radius at current point by 0.1 mm |
-| `a` | Apply current radius to all points of the active vessel |
-| `↑` / `↓` | Navigate slices |
-| `←` / `→` | Navigate to next / previous centerline point |
-| `p` or "Add PCAT" button | Generate PCAT volume (outer = radius × 3) with semi-transparent yellow overlay |
-| `s` | **Save contours & PCAT mask, continue pipeline** |
-| `q` | Quit without saving |
-| Scroll wheel | Change slice |
+| `←` / `→` | Navigate along vessel (previous / next cross-section) |
+| Click + drag control points | Adjust vessel wall contour shape |
+| `R` | Reset current contour to auto-detected |
+| `S` | **Save corrected contours & continue pipeline** |
+| `Q` | Quit without saving (uses auto-detected contours) |
 
-> Every drag or radius change immediately rebuilds the vessel mask, so the overlay always reflects your edits.
+The editor shows:
+- **Left panel:** CPR cross-section with vessel wall contour (cyan) and PCAT VOI boundary (yellow)
+- **Right panel:** Longitudinal CPR view with all contour positions marked
 
-### Stage 6 — CPR Browser (opens once per vessel)
+### Stage 7 — VOI construction & FAI computation (~3 s)
 
-After the contour editor closes, an interactive CPR browser opens for each vessel sequentially.
+For each vessel, builds the PCAT VOI by morphological dilation of the corrected vessel wall contours:
+- Computes equivalent radius: `r_eq = sqrt(area / pi)`
+- Dilates by `d = 3 × r_eq` to create the pericoronary region
+- Applies fat threshold: −190 to −30 HU
+- Computes FAI statistics (mean HU, fat fraction, voxel count)
+
+### Stage 8 — CPR Browser (opens once per vessel)
+
+After VOI computation, an interactive CPR browser opens for each vessel sequentially.
 
 | Key / Action | Effect |
 |---|---|
@@ -122,19 +130,30 @@ After the contour editor closes, an interactive CPR browser opens for each vesse
 | `a` | Toggle anchor mode (click to place anchors on CPR) |
 | `p` | Apply anchors and print anchor data |
 | `r` | Reset rotation to 0° |
-| `s` | Save a PNG snapshot |
 | `q` | Close and continue to next vessel |
 
-The cross-section shows:
+### Stage 9 — Export & summary
 
-- Actual vessel lumen contour (cyan, detected from HU thresholding)
-- VOI boundary ring (green dashed, 3× lumen radius)
+1. Per-vessel `.raw` VOI volumes + metadata JSON
+2. Combined all-vessel VOI exported as `.raw`
+3. CPR images: FAI overlay, vessel wall overlay, DICOM secondary capture
+4. HU histograms and radial HU profiles per vessel
+5. Summary bar chart and `*_results.json`
 
-### Stage 7 — Export & visualization
+---
 
-1. Combined all-vessel VOI exported as `.raw` file
-2. 3D visualization rendered as DICOM secondary capture frames
-3. Summary bar chart and `*_results.json` saved
+## Estimated total runtime
+
+| Stage | Time |
+|-------|------|
+| Auto seeds (TotalSegmentator) | ~30–60 s |
+| Seed review | Interactive |
+| Frangi vesselness (MPS GPU) | ~120 s |
+| Per-vessel processing | ~5 s |
+| Contour editor | Interactive |
+| VOI + outputs | ~3 s |
+| CPR browsers | Interactive |
+| **Total (non-interactive)** | **~3 min** |
 
 ---
 
@@ -158,6 +177,17 @@ python pipeline/run_pipeline.py \
 python pipeline/run_pipeline.py --batch --auto-seeds --skip-editor --skip-cpr-browser
 ```
 
+**Legacy VOI mode** (uses estimated circles instead of polar-transform contours):
+
+```bash
+python pipeline/run_pipeline.py \
+    --dicom Rahaf_Patients/1200.2 \
+    --seeds seeds/patient_1200.json \
+    --output output/patient_1200 \
+    --prefix patient1200 \
+    --legacy-voi
+```
+
 > Do not use fully automatic mode for clinical reporting without a separate manual review step.
 
 ---
@@ -174,18 +204,16 @@ output/patient_1200/
 │   ├── patient1200_LAD_cpr_wall.png  # CPR with vessel wall + VOI boundary lines
 │   └── patient1200_LAD_cpr_hu.dcm    # CPR as DICOM secondary capture
 ├── plots/
-│   ├── patient1200_LAD_hu_histogram.png    # HU distribution in VOI
-│   ├── patient1200_LAD_radial_profile.png  # Fat HU vs. distance from wall
-│   └── patient1200_summary.png             # Bar charts: FAI, fat fraction, voxel count
-├── raw/
-│   ├── patient1200_LAD_voi.raw             # Per-vessel VOI volume
-│   ├── patient1200_LAD_voi_metadata.json   # Volume dimensions, spacing, origin
-│   ├── patient1200_combined_voi.raw        # All-vessel combined VOI
-│   └── patient1200_combined_voi_metadata.json
-└── 3d/
-    └── patient1200_3d_dicom/               # 3D render as multi-frame DICOM
-        ├── patient1200_3d_frame001.dcm
-        └── ...
+│   ├── patient1200_centerline_verification.png  # Centerline + TotalSeg overlay
+│   ├── patient1200_LAD_hu_histogram.png         # HU distribution in VOI
+│   ├── patient1200_LAD_radial_profile.png       # Fat HU vs. distance from wall
+│   └── patient1200_summary.png                  # Bar charts: FAI, fat fraction, voxel count
+└── raw/
+    ├── patient1200_contour_data.npz             # Vessel wall contours (for game editor)
+    ├── patient1200_LAD_voi.raw                  # Per-vessel VOI volume
+    ├── patient1200_LAD_voi_metadata.json        # Volume dimensions, spacing, origin
+    ├── patient1200_combined_voi.raw             # All-vessel combined VOI
+    └── patient1200_combined_voi_metadata.json
 ```
 
 Each vessel (LAD, LCX, RCA) produces its own set of `cpr/`, `plots/`, and `raw/` files.
@@ -210,7 +238,8 @@ These can be run independently outside the pipeline:
 | `pipeline/seed_picker.py` | Manual seed placement: `python pipeline/seed_picker.py --dicom <dir> --output seeds/patient.json` |
 | `pipeline/seed_reviewer.py` | Review/edit seeds: `python pipeline/seed_reviewer.py --dicom <dir> --seeds <json> --output <json>` |
 | `pipeline/cpr_browser.py` | Browse CPR interactively: `python pipeline/cpr_browser.py --dicom <dir> --seeds <json> --vessel LAD` |
-| `pipeline/coronary_contour_editor.py` | Edit contours: `python pipeline/coronary_contour_editor.py --dicom <dir> --data <npz> --output <dir>` |
+| `pipeline/contour_game_editor.py` | Edit vessel contours: `python pipeline/contour_game_editor.py --dicom <dir> --contour-data <npz> --output <dir> --prefix <name>` |
+| `pipeline/coronary_contour_editor.py` | Legacy contour editor: `python pipeline/coronary_contour_editor.py --dicom <dir> --data <npz> --output <dir> --prefix <name>` |
 
 ---
 
@@ -218,12 +247,13 @@ These can be run independently outside the pipeline:
 
 | Problem | Fix |
 |---------|-----|
-| "too few centerline points" | Re-run and adjust seeds in the Seed Reviewer |
+| "too few centerline points" | Re-run and adjust seeds in the Seed Reviewer. The pipeline uses cubic-spline interpolation as fallback. |
 | NaN mean HU in results | No fat voxels in VOI; vessel may be heavily calcified |
 | "only N vessels found" warning | Add the missing vessel manually in the Seed Reviewer |
 | Seed Reviewer / Contour Editor won't open | Add `--skip-editor --skip-cpr-browser` (headless server) |
 | TotalSegmentator fails | Place seeds manually with `seed_picker.py` (see Standalone Tools) |
 | Frangi is slow (~120 s on CPU) | Install PyTorch (`pip install torch`) for MPS GPU acceleration on Apple Silicon |
+| `s` key opens PNG save dialog | Update to latest version — this was a matplotlib keybinding conflict (fixed) |
 
 ---
 
