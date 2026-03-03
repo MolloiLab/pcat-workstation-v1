@@ -1053,20 +1053,29 @@ def extract_centerline_seeds(
         else:
             reason = f"sparse ({len(cl)} pts < {min_pts_expected})"
         warnings.warn(
-            f"Centerline fallback [{reason}]: using linear interpolation of waypoints.",
+            f"Centerline fallback [{reason}]: using cubic-spline interpolation of waypoints.",
             RuntimeWarning,
         )
-        step_mm = 0.5
-        lin_pts: List[np.ndarray] = []
-        for i in range(len(all_pts) - 1):
-            p0 = np.array(all_pts[i], dtype=np.float64)
-            p1 = np.array(all_pts[i + 1], dtype=np.float64)
-            seg_len = float(np.linalg.norm((p1 - p0) * sp))
-            n_steps = max(2, int(np.ceil(seg_len / step_mm)))
-            for t in np.linspace(0.0, 1.0, n_steps, endpoint=(i == len(all_pts) - 2)):
-                lin_pts.append(np.round(p0 + t * (p1 - p0)).astype(int))
-        lin_pts.append(np.round(np.array(all_pts[-1], dtype=np.float64)).astype(int))
-        cl = np.clip(np.array(lin_pts), 0, np.array(vesselness.shape) - 1)
+        from scipy.interpolate import CubicSpline
+        pts = np.array(all_pts, dtype=np.float64)          # (K, 3) waypoints
+        pts_mm = pts * sp                                   # convert to mm
+        seg_mm = np.linalg.norm(np.diff(pts_mm, axis=0), axis=1)
+        arc = np.concatenate([[0.0], np.cumsum(seg_mm)])    # cumulative arc per waypoint
+        total_arc = arc[-1]
+        if total_arc < 1e-6 or len(pts) < 3:
+            # Too few waypoints for cubic — degenerate to linear
+            step_mm = 0.5
+            n_out = max(2, int(np.ceil(total_arc / step_mm)))
+            t = np.linspace(0.0, 1.0, n_out)
+            spline_pts = pts[[0]] + t[:, None] * (pts[[-1]] - pts[[0]])
+        else:
+            # Cubic spline through waypoints (natural boundary conditions)
+            cs = CubicSpline(arc, pts_mm, bc_type='natural')
+            step_mm = 0.5
+            n_out = max(2, int(np.ceil(total_arc / step_mm)))
+            s_vals = np.linspace(0.0, total_arc, n_out)
+            spline_pts = cs(s_vals) / sp                    # back to voxel ijk
+        cl = np.clip(np.round(spline_pts).astype(int), 0, np.array(vesselness.shape) - 1)
     return cl
 
 
