@@ -9,8 +9,8 @@ Automatically measures fat around coronary arteries from a cardiac CT scan (CCTA
 1. Finds your coronary arteries (LAD, LCX, RCA) automatically
 2. Lets you review and refine the coronary seed locations
 3. Extracts centerlines, estimates vessel radii, and builds pericoronary VOIs
-4. Lets you browse interactive CPR images per vessel
-5. Lets you review and adjust centerlines, vessel wall contours, and PCAT volumes
+4. Lets you review and adjust centerlines, vessel wall contours, and PCAT volumes
+5. Lets you browse interactive CPR images per vessel
 6. Generates the PCAT (pericoronary fat) volume and measures the **Fat Attenuation Index (FAI)**
 7. Saves images and statistics you can review and report
 
@@ -86,29 +86,6 @@ For each vessel the pipeline automatically:
 5. Computes FAI statistics (mean HU, fat fraction, voxel count)
 6. Generates CPR images (FAI overlay, vessel wall overlay, DICOM secondary capture)
 7. Plots HU histogram and radial HU profile
-8. Opens the **CPR Browser** (see below)
-
-#### CPR Browser (opens once per vessel)
-
-An interactive window with the CPR image on the left and a cross-section view on the right.
-
-| Key / Action | Effect |
-|---|---|
-| Arc-length slider | Move the cross-section needle along the vessel |
-| Rotation slider | Rotate the cutting plane (0–360°) |
-| Click on CPR image | Jump needle to that vessel position |
-| `←` / `→` or `↑` / `↓` | Step needle by one point |
-| Scroll wheel | Rotate cutting plane by ±5° |
-| `a` | Toggle anchor mode (click to place anchors on CPR) |
-| `p` | Apply anchors and print anchor data |
-| `r` | Reset rotation to 0° |
-| `s` | Save a PNG snapshot |
-| `q` | Close and continue to next vessel |
-
-The cross-section shows:
-- Actual vessel lumen contour (cyan, detected from HU thresholding)
-- Estimated lumen circle (dashed gray reference)
-- VOI boundary ring (green dashed, 3× lumen radius)
 
 ### Stage 5 — Coronary Artery Contour Editor
 
@@ -131,7 +108,29 @@ Opens after all vessels are processed. Shows 3 MPR planes with vessel centerline
 
 > Every drag or radius change immediately rebuilds the vessel mask, so the overlay always reflects your edits.
 
-### Stage 6 — Export & visualization
+### Stage 6 — CPR Browser (opens once per vessel)
+
+After the contour editor closes, an interactive CPR browser opens for each vessel sequentially.
+
+| Key / Action | Effect |
+|---|---|
+| Arc-length slider | Move the cross-section needle along the vessel |
+| Rotation slider | Rotate the cutting plane (0–360°) |
+| Click on CPR image | Jump needle to that vessel position |
+| `←` / `→` or `↑` / `↓` | Step needle by one point |
+| Scroll wheel | Rotate cutting plane by ±5° |
+| `a` | Toggle anchor mode (click to place anchors on CPR) |
+| `p` | Apply anchors and print anchor data |
+| `r` | Reset rotation to 0° |
+| `s` | Save a PNG snapshot |
+| `q` | Close and continue to next vessel |
+
+The cross-section shows:
+
+- Actual vessel lumen contour (cyan, detected from HU thresholding)
+- VOI boundary ring (green dashed, 3× lumen radius)
+
+### Stage 7 — Export & visualization
 
 1. Combined all-vessel VOI exported as `.raw` file
 2. 3D visualization rendered as DICOM secondary capture frames

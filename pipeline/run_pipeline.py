@@ -474,26 +474,7 @@ def run_patient(
         if cpr_wall_path:
             results["outputs"].append(str(cpr_wall_path))
 
-        # ── Interactive CPR browser (optional, skipped in headless mode) ──────────
-        if not skip_cpr_browser:
-            print(f"[pipeline] Launching interactive CPR browser for {vessel_name}...")
-            print(f"[pipeline] (close the window or press 'q' to continue the pipeline)")
-            try:
-                import subprocess as _subprocess
-                import sys as _sys
-                _subprocess.run(
-                    [
-                        _sys.executable,
-                        str(Path(__file__).parent / "cpr_browser.py"),
-                        "--dicom",  str(dicom_dir),
-                        "--seeds",  str(seeds_path),
-                        "--vessel", vessel_name,
-                        "--output", str(output_dir),
-                    ],
-                    check=False,
-                )
-            except Exception as _e:
-                print(f"[pipeline] WARNING: CPR browser failed to launch: {_e}")
+
 
         # Output 4: HU histogram
         hist_path = plot_hu_histogram(
@@ -581,6 +562,32 @@ def run_patient(
                 
         except Exception as _e:
             print(f"[pipeline] WARNING: contour editor error: {_e}")
+    # ── Step 3c: Interactive CPR browsers (one per vessel) ────────────────
+    # Launched after contour editor so the user reviews contours first,
+    # then browses CPR images with the final centerlines.
+    if not skip_cpr_browser and vessel_centerlines:
+        for vessel_name in vessels:
+            if vessel_name not in vessel_centerlines:
+                continue
+            print(f"\n[pipeline] Launching interactive CPR browser for {vessel_name}...")
+            print(f"[pipeline] (close the window or press 'q' to continue the pipeline)")
+            try:
+                import subprocess as _subprocess
+                import sys as _sys
+                _subprocess.run(
+                    [
+                        _sys.executable,
+                        str(Path(__file__).parent / "cpr_browser.py"),
+                        "--dicom",  str(dicom_dir),
+                        "--seeds",  str(seeds_path),
+                        "--vessel", vessel_name,
+                        "--output", str(output_dir),
+                    ],
+                    check=False,
+                )
+            except Exception as _e:
+                print(f"[pipeline] WARNING: CPR browser failed to launch: {_e}")
+
     # ── Step 4: Combined VOI export ───────────────────────────────────────
     if vessel_voi_masks:
         print("\n[pipeline] Exporting combined all-vessel VOI .raw...")
