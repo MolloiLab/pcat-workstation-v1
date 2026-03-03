@@ -58,6 +58,8 @@ import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")  # Use interactive backend
 import matplotlib.pyplot as plt
+# Disable matplotlib's default 's' = save-figure keybinding so our 's' = save-seeds works
+plt.rcParams['keymap.save'] = []
 import matplotlib.patches as mpatches
 from matplotlib.widgets import Slider
 
@@ -595,7 +597,8 @@ class SeedReviewer:
             self.active_view = "coronal"
             self.z_slice = max(0, min(z, self.shape[0] - 1))
         elif ax == self.ax_sagittal:
-            z, y, x = iy, ix, self.x_slice
+            actual_z = self.shape[0] - 1 - iy  # Un-flip Z (sagittal is flipud)
+            z, y, x = actual_z, ix, self.x_slice
         else:
             return
         
