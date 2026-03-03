@@ -239,6 +239,151 @@ def render_3d_voi_dicom(
 
     print(f"[visualize] 3D DICOM series written: {n_frames} frames -> {dicom_dir}")
     return dicom_dir
+def render_centerline_verification(
+    volume: np.ndarray,
+    vessel_centerlines: Dict[str, np.ndarray],
+    spacing_mm: List[float],
+    output_dir: str | Path,
+    prefix: str,
+    totalseg_mask: Optional[np.ndarray] = None,
+) -> Path:
+    """
+    Generate a static PNG showing 3 MIP projections (axial, coronal, sagittal) of the CT volume
+    with TotalSegmentator coronary mask overlaid semi-transparently (if available) and
+    extracted centerlines for all vessels overlaid with per-vessel colors.
+    
+    Parameters
+    ----------
+    volume : np.ndarray
+        (Z, Y, X) float32 HU
+    vessel_centerlines : Dict[str, np.ndarray]
+        {vessel_name: (N, 3) ijk indices}
+    spacing_mm : List[float]
+        [sz, sy, sx]
+    output_dir : str | Path
+        Directory to save the visualization
+    prefix : str
+        Prefix for the output filename
+    totalseg_mask : Optional[np.ndarray]
+        (Z, Y, X) bool, TotalSeg coronary mask in same orientation as volume
+        
+    Returns
+    -------
+    Path
+        Path to the saved PNG file
+    """
+    import matplotlib.pyplot as plt
+    
+    # Vessel colors matching existing convention
+    vessel_colors = {
+        'LAD': '#E8533A',  # red-orange
+        'LCX': '#4A90D9',  # blue
+        'RCA': '#2ECC71',  # green
+    }
+    
+    # Ensure output directory exists
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create figure with 1 row × 3 columns
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), dpi=150)
+    fig.suptitle(f"{prefix} — Centerline Verification")
+    
+    # Compute MIP projections
+    # Axial MIP: np.max(volume, axis=0) — projects Z axis, shows (Y, X)
+    axial_mip = np.max(volume, axis=0)
+    # Coronal MIP: np.max(volume, axis=1) — projects Y axis, shows (Z, X)
+    coronal_mip = np.max(volume, axis=1)
+    # Sagittal MIP: np.max(volume, axis=2) — projects X axis, shows (Z, Y)
+    sagittal_mip = np.max(volume, axis=2)
+    
+    # Display MIPs with HU window -200 to 600
+    vmin, vmax = -200, 600
+    
+    # Axial view
+    axes[0].imshow(axial_mip, cmap='gray', vmin=vmin, vmax=vmax, origin='upper')
+    axes[0].set_title('Axial MIP')
+    axes[0].set_xlabel('X (voxels)')
+    axes[0].set_ylabel('Y (voxels)')
+    
+    # Coronal view
+    axes[1].imshow(coronal_mip, cmap='gray', vmin=vmin, vmax=vmax, origin='lower')
+    axes[1].set_title('Coronal MIP')
+    axes[1].set_xlabel('X (voxels)')
+    axes[1].set_ylabel('Z (voxels)')
+    
+    # Sagittal view
+    axes[2].imshow(sagittal_mip, cmap='gray', vmin=vmin, vmax=vmax, origin='lower')
+    axes[2].set_title('Sagittal MIP')
+    axes[2].set_xlabel('Y (voxels)')
+    axes[2].set_ylabel('Z (voxels)')
+    
+    # Overlay TotalSeg mask if provided
+    if totalseg_mask is not None:
+        # Project mask to 2D using np.any
+        axial_mask = np.any(totalseg_mask, axis=0)
+        coronal_mask = np.any(totalseg_mask, axis=1)
+        sagittal_mask = np.any(totalseg_mask, axis=2)
+        
+        # Create a transparent overlay
+        from matplotlib.colors import ListedColormap
+        mask_cmap = ListedColormap(['none', 'cyan'])
+        
+        # Overlay with alpha=0.3
+        axes[0].imshow(axial_mask, cmap=mask_cmap, alpha=0.3, origin='upper')
+        axes[1].imshow(coronal_mask, cmap=mask_cmap, alpha=0.3, origin='lower')
+        axes[2].imshow(sagittal_mask, cmap=mask_cmap, alpha=0.3, origin='lower')
+    
+    # Overlay centerlines with per-vessel colors
+    for vessel_name, centerline in vessel_centerlines.items():
+        if vessel_name not in vessel_colors:
+            continue
+            
+        color = vessel_colors[vessel_name]
+        z_coords, y_coords, x_coords = centerline[:, 0], centerline[:, 1], centerline[:, 2]
+        
+        # Project centerlines onto each view
+        # Axial: (Y, X) projection
+        axes[0].scatter(x_coords, y_coords, s=1, c=color, label=vessel_name)
+        # Coronal: (Z, X) projection
+        axes[1].scatter(x_coords, z_coords, s=1, c=color, label=vessel_name)
+        # Sagittal: (Z, Y) projection
+        axes[2].scatter(y_coords, z_coords, s=1, c=color, label=vessel_name)
+        
+        # Add vessel name labels near the start of each centerline
+        # Get the first point of the centerline
+        if len(centerline) > 0:
+            z0, y0, x0 = centerline[0]
+            
+            # Axial: add text with small offset to avoid overlap
+            axes[0].text(x0 + 5, y0 + 5, vessel_name, color=color, fontsize=8, 
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
+            
+            # Coronal
+            axes[1].text(x0 + 5, z0 + 5, vessel_name, color=color, fontsize=8,
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
+            
+            # Sagittal
+            axes[2].text(y0 + 5, z0 + 5, vessel_name, color=color, fontsize=8,
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.7))
+    
+    # Add legend
+    handles, labels = axes[0].get_legend_handles_labels()
+    if handles:  # Only add legend if there are vessels
+        fig.legend(handles, labels, loc='upper right')
+    
+    plt.tight_layout()
+    
+    # Save figure
+    output_path = output_dir / f"{prefix}_centerline_verification.png"
+    plt.savefig(str(output_path), dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    
+    print(f"[visualize] Centerline verification saved to {output_path}")
+    return output_path
+
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

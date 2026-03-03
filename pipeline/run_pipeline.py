@@ -75,6 +75,7 @@ from pipeline.visualize import (
     render_cpr_png,
     plot_hu_histogram,
     plot_radial_hu_profile,
+    render_centerline_verification,
     plot_summary,
 )
 
@@ -405,6 +406,39 @@ def run_patient(
         # Store reviewed (or original if skip_editor) mask for 3D render + combined export
 
         print(f"[pipeline] {vessel_name} data ready in {time.time() - t_vsl:.1f}s")
+
+    # ── Centerline verification visualization ────────────────────────────
+    print("\n[pipeline] Generating centerline verification visualization...")
+    # Try to load TotalSeg mask if auto-seeds was used
+    totalseg_mask = None
+    try:
+        ts_mask_path = Path(seeds_path).parent / f"patient_{prefix.replace('patient', '')}" / "coronary_arteries.nii.gz"
+        # Also check common locations
+        for candidate in [
+            ts_mask_path,
+            output_dir / "totalseg" / "coronary_arteries.nii.gz",
+            Path(f"output/discarded/totalseg_{prefix.replace('patient', '')}") / "coronary_arteries.nii.gz",
+        ]:
+            if candidate.exists():
+                import nibabel as nib
+                ts_img = nib.load(str(candidate))
+                ts_data = ts_img.get_fdata()
+                # TotalSeg outputs in XYZ, pipeline uses ZYX
+                totalseg_mask = ts_data.transpose(2, 1, 0).astype(bool)
+                print(f"[pipeline] Loaded TotalSeg mask from {candidate} ({totalseg_mask.sum():,} voxels)")
+                break
+    except Exception as e:
+        print(f"[pipeline] TotalSeg mask not available: {e}")
+    
+    verify_path = render_centerline_verification(
+        volume=volume,
+        vessel_centerlines=vessel_centerlines,
+        spacing_mm=spacing_mm,
+        output_dir=plots_dir,
+        prefix=prefix,
+        totalseg_mask=totalseg_mask,
+    )
+    results["outputs"].append(str(verify_path))
 
 
     # ── Step 3b: Coronary Artery Contour Editor ──────────────────────────────
