@@ -243,7 +243,29 @@ Proves inflammation is a causal driver of MACE, not merely associated. Validates
 - Added incremental value in intermediate-risk patients (10-year ASCVD 7.5–20%)
 - Integrates FAI + shape features + coronary calcification into a single AI risk score
 
-**Extended ORFAN results (Chan et al. 2024, *Lancet*)**: Expanded to n=40,091 across multiple centres. FAI and AI-Risk algorithm validated for MACE and cardiac mortality in BOTH obstructive and non-obstructive CAD. Median 7.7 years follow-up. Notably, 81% of the cohort had non-obstructive disease, yet more cardiac deaths occurred in this non-obstructive group — highlighting the importance of inflammation beyond stenosis.
+**Extended ORFAN results (Chan K, Wahome SKW, Antoniades C et al. 2024, *Lancet*)**:
+
+> "Inflammatory risk and cardiovascular events in patients without obstructive coronary artery disease: the ORFAN multicentre, longitudinal cohort study." *Lancet* 2024.
+
+The largest PCAT/FAI study to date — n=**40,091** consecutive CCTA patients from **8 UK NHS hospitals**, with two nested cohorts:
+
+- **Cohort A** (n=40,091): Median follow-up **2.7 years**. 81.1% had **no obstructive CAD**, yet this group accounted for **66.3% of all MACE** and **63.7% of cardiac deaths** — proving that inflammatory risk extends far beyond stenosis-based risk.
+- **Cohort B** (n=3,393): Median follow-up **7.7 years**. Validated FAI Score in all 3 coronary territories (LAD, LCX, RCA).
+
+Key findings from the full cohort:
+
+| Finding | Metric |
+|---|---|
+| FAI Score in ANY artery predicted cardiac mortality/MACE | Independent of risk factors AND extent of CAD |
+| 3 inflamed arteries vs none — cardiac mortality | **HR 29.8** |
+| 3 inflamed arteries vs none — MACE | **HR 12.6** |
+| AI-Risk classification (FAI Score + plaque burden + risk factors) | NRI **0.38** for cardiac mortality |
+| AI-Risk very high vs low/medium — cardiac mortality | **HR 6.75** |
+| AI-Risk very high vs low/medium — MACE | **HR 4.68** |
+
+Used **CaRi-Heart v2.5** (Caristo Diagnostics) for FAI Score computation — not raw FAI but a standardised score adjusted for technical/anatomical/demographic factors.
+
+**Key conclusion**: FAI Score captures inflammatory risk **beyond** current risk stratification, especially in patients **without** obstructive CAD — the very patients missed by traditional stenosis-based evaluation.
 
 ### 6.4 COLCOT and LoDoCo2 (Colchicine)
 
@@ -254,13 +276,25 @@ Established colchicine as an evidence-based anti-inflammatory agent for CAD, cre
 
 ### 6.5 LoDoCo2 CT Substudy — Key Negative Finding
 
-> Fiolet ATL et al. *Heart* 2025. n=151 from LoDoCo2 trial.
+> Fiolet ATL et al. "Effect of Low-Dose Colchicine on Pericoronary Inflammation and Coronary Plaque Composition in Chronic Coronary Disease: A Sub-Analysis of the LoDoCo2 Trial." *Heart* 2025. n=151 from LoDoCo2 trial (n=5,522 main trial).
 
-This imaging substudy assessed whether colchicine changes PCAT attenuation after 28 months of treatment:
+Pre-specified cross-sectional substudy. 128-slice Siemens Definition Flash at 4 Dutch sites. Median **28.2 months** of colchicine 0.5 mg daily vs placebo. Used AutoPlaque v3.0 (Cedars-Sinai) for plaque analysis.
 
-- **PCAT attenuation did NOT differ** between colchicine and placebo groups (−79.5 vs −78.7 HU, p=0.236)
-- However, colchicine was associated with **higher calcified plaque volume** (plaque stabilisation/calcification)
-- **Implication**: FAI may not be a sensitive treatment-monitoring biomarker for anti-inflammatory therapy — a significant limitation for clinical deployment as a serial measurement tool
+| Measurement | Colchicine | Placebo | p-value |
+|---|---|---|---|
+| **PCAT attenuation** | −79.5 HU | −78.7 HU | **0.236** (NS) |
+| hs-CRP | No difference | — | NS |
+| IL-6 | No difference | — | NS |
+| Calcified plaque volume | **169.6 mm³** | 113.1 mm³ | **0.041** |
+| Dense calcified plaque | **192.8 mm³** | 144.3 mm³ | **0.048** |
+| LAP burden (low-intensity statin subgroup) | Lower | Higher | p_interaction=**0.037** |
+
+- No correlation between hs-CRP/IL-6 and PCAT attenuation in either group
+- Higher calcified plaque in the colchicine arm is consistent with **plaque stabilisation** (calcification = healing)
+- **42% had stented proximal segments** — may have affected PCAT measurement via partial volume artifact
+- Cross-sectional design (no baseline CT) is a key limitation — cannot assess within-patient change
+
+**Critical implication**: Despite colchicine reducing MACE by 31% in the main LoDoCo2 trial, PCAT attenuation **failed to detect** its anti-inflammatory effect. If FAI cannot capture the signal of a proven anti-inflammatory drug, its utility as a **treatment monitoring biomarker** is questionable. This directly supports the argument that HU-based FAI has fundamental sensitivity limitations.
 
 ### 6.6 Meta-Analyses
 
@@ -419,7 +453,7 @@ This means radiomic models trained on one acquisition timing may not generalise 
 ### 10.5 Scanner Platform and Detector Type
 
 - Energy-integrating detectors vs photon-counting detectors produce systematically different HU values for the same tissue
-- **Tremamunno et al. (2024, *Acad Radiol*)**: Intra-individual FAI differences between PCD-CT and conventional CT confirmed measurements are NOT directly comparable
+- **Tremamunno G et al. (*Acad Radiol* 2025;32(3), DOI: 10.1016/j.acra.2024.11.055)**: Intra-individual FAI differences between PCD-CT and conventional CT confirmed measurements are NOT directly comparable
 - PCD-CT values require calibration before the −70.1 HU threshold can be applied
 
 ### 10.6 Cardiac Phase
@@ -433,7 +467,7 @@ Multiple studies use inconsistent fat threshold definitions (minimum: −200 to 
 ### 10.8 Partial Volume Effects
 
 - **Li et al. (2025)**: PCAT density is highest closest to lumen (within 0.5 mm) and decreases with distance. Measurements within 0.75 mm of lumen are susceptible to partial volume effects from adjacent contrast-enhanced vessel.
-- **Hell et al.**: Argued that variations in CT density of PCAT are primarily attributed to partial volume effects and image interpolation rather than tissue composition or metabolic activity — a fundamental challenge to the biological interpretation of FAI.
+- **Hell MM, Achenbach S et al. (*JCCT* 2016;10:52–60)**: Argued that variations in CT density of PCAT are primarily attributed to partial volume effects and image interpolation rather than tissue composition or metabolic activity — a fundamental challenge to the biological interpretation of FAI. PCAT attenuation decreased with increasing distance from the vessel and from proximal to distal segments, consistent with partial volume contamination from the contrast-enhanced lumen.
 
 ### 10.9 The −70.1 HU Threshold Problem
 
@@ -443,7 +477,7 @@ The FAI threshold was validated on specific scanner platforms with specific prot
 - Different scanner platforms (especially PCD-CT) → misclassification
 - Longitudinal monitoring with protocol changes → unreliable trend detection
 
-**Chan & Antoniades (2025)** have acknowledged this problem and proposed the **"FAI Score"** — adjusting raw PCAT attenuation for technical factors (tube voltage, reconstruction), anatomical factors (vessel size, fat volume), and demographic factors (age, sex, BMI) to produce a standardised score. This is the Oxford group's own proposed solution, but it adds complexity and requires calibration datasets.
+**Chan & Antoniades (2025, editorial comment: "Pericoronary Adipose Tissue Imaging and the Need for Standardized Measurement of Coronary Inflammation")** have acknowledged this problem and proposed the **"FAI Score"** — adjusting raw PCAT attenuation for technical factors (tube voltage, reconstruction), anatomical factors (vessel size, fat volume), and demographic factors (age, sex, BMI) to produce a standardised score. This is the Oxford group's own proposed solution, but it adds complexity and requires calibration datasets. *Note: this is an editorial comment, not a full original research study.*
 
 ### 10.10 The Standardization Challenge
 
@@ -460,9 +494,39 @@ The field recognises that FAI cannot be widely adopted as a clinical biomarker w
 
 ### 11.1 Studies Finding No Predictive Value
 
-- **Ma et al. (2021)**: Found no difference in PCAT attenuation between patients with and without CAD.
-- **Pandey et al. (2020)**: Patients with obstructive CAD had even **lower** PCAT attenuation than those without — a counterintuitive finding.
-- **Boussoussou et al. (2023)**: Found **no correlation** between PCAT and CAD after correcting for image acquisition parameters and patient characteristics — suggesting FAI signal may be confounded by technical factors.
+- **Ma et al. (2021, "Focal pericoronary adipose tissue attenuation is related to plaque presence, plaque type, and stenosis severity in coronary CTA")**: Found no difference in PCAT attenuation between patients with and without CAD.
+- **Pandey et al. (2020, "Epicardial fat attenuation, not volume, predicts obstructive coronary artery disease and high risk plaque features in patients with atypical chest pain", *Br J Radiol* 2020;93:20200540)**: Patients with obstructive CAD had even **lower** PCAT attenuation than those without — a counterintuitive finding suggesting the FAI signal is not as straightforward as "higher = more inflamed = more disease."
+
+**Boussoussou et al. (2023, "The effect of patient and imaging characteristics on coronary CT angiography assessed pericoronary adipose tissue attenuation and gradient", *JCCT* 2023, Semmelweis/Cedars-Sinai/MGH)**:
+
+> n=**1,652** patients with **zero calcium score** (low-risk). PCAT range: −123 to −51 HU — a wide range even in low-risk patients.
+
+This is perhaps the most damaging study to the FAI thesis. Key findings:
+
+| Analysis | NCP association with PCAT | p-value |
+|---|---|---|
+| **Univariable** | +2 HU with NCP presence | **<0.001** |
+| **Multivariable** (corrected for imaging + patient factors) | **No association** | **0.93** |
+
+After multivariable correction for patient and imaging characteristics, **NONE of the plaque markers remained associated with PCAT attenuation**.
+
+Significant independent predictors of PCAT attenuation (not plaque, but technical/demographic):
+
+| Factor | Effect on PCAT |
+|---|---|
+| Male sex | **+1 HU** |
+| 120 kVp vs 100 kVp | **+8 HU** |
+| Pixel spacing | **+32 HU per mm³** |
+| Heart rate | **−0.2 HU per bpm** |
+| BMI | **−0.4 HU per kg/m²** |
+| Tube current | Significant |
+| CNR / SNR | Significant |
+
+Validated on a different scanner (GE CardioGraphe vs Philips Brilliance): average PCAT attenuation was **15 HU higher** on the different scanner for the same patients. Also validated on moderate-to-severe CAD group: same pattern — plaque associations disappeared after correction.
+
+PCAT gradient showed similar results — associations with plaque vanished after adjustment.
+
+**Implication**: The FAI-plaque relationship reported in many studies may be substantially or entirely confounded by imaging parameters and patient characteristics. This directly supports material decomposition as an alternative — measuring composition rather than HU eliminates these confounders.
 
 ### 11.2 Treatment Monitoring Failure
 
@@ -470,12 +534,40 @@ The field recognises that FAI cannot be widely adopted as a clinical biomarker w
 
 ### 11.3 The Partial Volume Argument
 
-- **Hell et al.**: Argued that FAI variations are primarily due to partial volume effects and image interpolation, not genuine tissue composition changes. If true, this challenges the entire biological rationale for FAI.
+- **Hell MM, Achenbach S, Schuhbaeck A et al. "CT-based analysis of pericoronary adipose tissue density: Relation to cardiovascular risk factors and epicardial adipose tissue volume." *JCCT* 2016;10(1):52–60. DOI: 10.1016/j.jcct.2015.07.011**: Argued that FAI variations are primarily due to partial volume effects and image interpolation, not genuine tissue composition changes. PCAT attenuation decreased with increasing distance from the vessel and from proximal to distal segments — consistent with partial volume contamination from the contrast-enhanced lumen rather than biological gradients. If true, this challenges the entire biological rationale for FAI.
 - Counterargument: Antonopoulos et al. (2017) histological validation directly measured tissue composition changes (lipid droplet size, transcription factors, cytokines) that matched CT-derived FAI — suggesting at least some of the signal is biological.
 
 ### 11.4 Systematic Review Heterogeneity
 
 - **Tan et al. (2025) meta-analysis**: Found inconsistent FAI methodologies across studies, high heterogeneity in measurements, and uncertain clinical predictive value for MACE in some subgroups.
+
+### 11.5 JACC Comprehensive Review: "Not Ready for Prime Time"
+
+> Tan N et al. "Pericoronary Adipose Tissue as a Marker of Cardiovascular Risk." *JACC* 2023 (Review Topic of the Week). Baker Heart Institute, Melbourne + Cedars-Sinai.
+
+This authoritative JACC review synthesises the state of the PCAT/FAI field and identifies critical unresolved issues:
+
+**Bidirectional signalling theory**: The review formalises the concept that PCAT communicates with the vessel wall in BOTH directions:
+- **Inside-to-outside** (vessel → fat): Inflamed coronary arteries secrete cytokines that inhibit adipocyte maturation → smaller, lipid-poor, water-rich adipocytes → higher HU = FAI signal
+- **Outside-to-inside** (fat → vessel): Dysfunctional PCAT (in obesity/metabolic syndrome) secretes pro-inflammatory mediators → accelerates plaque development
+- This **bidirectional amplification loop** means FAI reflects both the consequence and the cause of coronary inflammation
+
+**Key confounders highlighted** (with specific magnitudes):
+- Tube voltage: **11 HU difference** between 70–120 kV
+- Reconstruction algorithm: significant and variable effect
+- Scanner type: not interchangeable
+- Body habitus: BMI-dependent baseline shift
+- Partial volume artifact: proximity to contrast-enhanced lumen
+- Heart rate: affects motion and apparent attenuation
+
+**Critical gaps identified**:
+1. **No test-retest variability study**: Even within 24 hours with matched parameters, test-retest variability has not been formally quantified — a basic requirement for any clinical biomarker
+2. **No head-to-head software comparison**: CaRi-Heart vs manual vs ShuKun vs other tools — never compared on the same dataset
+3. **Optimal measurement site/extent undefined**: Proximal 40 mm (Oxford) vs lesion-specific (ShuKun) vs whole-vessel — no consensus
+4. **RCA vs LAD vs LCX discordance**: Cannot reliably extrapolate from single artery to overall coronary inflammatory burden
+5. **Discordance with high-risk plaque**: Figure 3 of the review shows 4 cases with different directional relationships between HRP and PCAT — they are NOT always concordant
+
+**Verdict**: PCAT is a **promising but unvalidated** clinical biomarker that is **"not ready for prime time"** — needs standardisation, reproducibility validation, and prospective interventional trials before routine clinical deployment.
 
 ---
 
@@ -491,9 +583,11 @@ PCD-CT (Siemens NAEOTOM Alpha, GE Revolution CT) provides simultaneous multi-ene
 
 ### 12.2 Key PCD-CT Studies
 
+- **Mergen V, Eberhard M, Alkadhi H et al. "Epicardial Adipose Tissue Attenuation and Fat Attenuation Index: Phantom Study and In Vivo Measurements With Photon-Counting Detector CT." *AJR* 2021**: First systematic assessment of EAT/FAI on PCD-CT. Phantom and in vivo (n=30). VMI at 55–80 keV compared to reference 120 kVp EID scan. Fat attenuation varies significantly with VMI energy level — 70 keV VMI approximates 120 kVp but is not identical.
 - **Engel et al. (*J Clin Med* 2026)**: First study applying the −70.1 HU FAI threshold on PCD-CT. FAI ≥ −70.1 HU identified more lipid-rich, non-calcified plaques (vulnerable morphology).
-- **Tremamunno et al. (2024, *Acad Radiol*)**: Intra-individual FAI differences between PCD-CT and conventional CT — measurements not directly comparable.
-- **Kahmann/Ayx et al. (2024, *Front Cardiovasc Med*, Mannheim)**: PCAT texture analysis and CAD characterization on PCD-CT.
+- **Tremamunno G, Vecsey-Nagy M, Kravchenko D et al. "Intra-individual Differences in Pericoronary Fat Attenuation Index Measurements Between Photon-counting and Energy-integrating Detector Computed Tomography." *Acad Radiol* 2025;32(3). DOI: 10.1016/j.acra.2024.11.055**: Intra-individual FAI differences between PCD-CT and conventional EID CT confirmed measurements are NOT directly comparable. However, iterative reconstruction minimises most differences, enabling inter-scanner comparability.
+- **Kravchenko D, Tremamunno G, Varga-Szemes A et al. "Intra-individual radiomic analysis of pericoronary adipose tissue: Photon-counting detector vs energy-integrating detector CT angiography." *Int J Cardiol* 2025;420:132749 (MUSC/Schoepf group)**: Extended the Tremamunno FAI work to full radiomic analysis — compared PCAT radiomic feature stability between PCD-CT and EID-CT within the same patients.
+- **Kahmann J, Nörenberg D, Ayx I et al. "Interrelation of pericoronary adipose tissue texture and coronary artery disease of the left coronary artery in cardiac photon-counting computed tomography." *Front Cardiovasc Med* 2024;11:1499219 (Mannheim)**: PCAT texture analysis and CAD characterization on PCD-CT. Explored radiomic features of LAD and RCA PCAT on the NAEOTOM Alpha platform.
 - **Gao et al. (2025, *Eur J Radiol*)**: PCD-CT UHR mode significantly reduced stent blooming artifacts. Stent-specific FAI was lower in PCD-CT vs simulated conventional CT.
 - **2025 (*Front Cardiovasc Med*)**: Development of NEW threshold for pericoronary fat attenuation based on **40 keV VMI** from dual-energy spectral CT — recognizing the old threshold doesn't transfer.
 
@@ -629,6 +723,7 @@ VMI at 70 keV closely matches conventional 120 kVp CT in noise characteristics, 
 | 1999 | Atherosclerosis defined as inflammatory disease | Ross | Ross R, *NEJM* 1999 |
 | 2005 | PVAT macrophage infiltration characterised | Henrichot et al. | *ATVB* 2005 |
 | 2007–2015 | Vasa vasorum role in atherosclerosis established | Ritman & Lerman (Mayo) | Multiple reviews |
+| 2016 | PCAT density: partial volume effects argument | Hell, Achenbach (Erlangen) | Hell et al., *JCCT* 2016 |
 | 2016–2017 | Vasospastic angina linked to PVAT inflammation (PET) | Shimokawa (Tohoku) | Ohyama et al. |
 | 2017 | CANTOS trial: IL-1β causal role in MACE | Ridker (Brigham) | *NEJM* 2017 |
 | 2017 | FAI concept introduced with histological validation (n=453) | Antoniades (Oxford) | Antonopoulos et al., *Sci Transl Med* |
@@ -641,16 +736,17 @@ VMI at 70 keV closely matches conventional 120 kVp CT in noise characteristics, 
 | 2022 | Phantom study: PCATMA affected by kVp and reconstruction | Etter et al. | Etter et al. 2022 |
 | 2022–2024 | PCD-CT FAI studies begin | Zurich, Mannheim | Multiple |
 | 2023 | ORFAN: CaRi-Heart AI-FAI outperforms conventional risk (n=3,324) | Oxford | *Nat CV Res* 2023 |
-| 2023 | Boussoussou: No PCAT-CAD correlation after adjustments | — | Boussoussou et al. 2023 |
+| 2023 | Tan JACC review: PCAT "not ready for prime time" | Baker Heart/Cedars-Sinai | Tan et al., *JACC* 2023 |
+| 2023 | Boussoussou: No PCAT-CAD correlation after adjustments | Semmelweis/Cedars-Sinai | Boussoussou et al. 2023 |
 | 2024 | ORFAN extended: n=40,091, 7.7 yr follow-up | Oxford/multicentre | Chan et al., *Lancet* 2024 |
 | 2024 | Lisi: kernel effects up to 33 HU variation | Zurich | *Eur Radiol* 2024 |
-| 2024 | PCD-CT vs EID: FAI not comparable | Tremamunno et al. | *Acad Radiol* 2024 |
+| 2024 | PCD-CT vs EID: FAI not comparable | Tremamunno, Schoepf (MUSC) | *Acad Radiol* 2025;32(3) |
 | 2025 | **Lab's previous paper**: water-lipid-protein for PVAT (simulation) | Nie S, Molloi (UCI) | *Int J Cardiovasc Imaging* 2025 |
 | 2025 | Wu: perfusion confounds (7 HU swing, 78% radiomic instability) | Case Western | Wu et al. 2025 |
 | 2025 | Caristo: FDA clearance CaRi-Plaque, CPT codes, Medicare | Oxford/Caristo | — |
 | 2025 | LoDoCo2 CT substudy: colchicine does NOT change FAI | Fiolet et al. | *Heart* 2025 |
 | 2025 | PCAT radiomics multicentre (n=777) | Shang et al. (China) | *Cardiovasc Diabetol* 2025 |
-| 2025 | FAI Score standardization proposed | Chan & Antoniades | Oxford preprint |
+| 2025 | FAI Score standardization proposed (editorial comment) | Chan & Antoniades | Oxford |
 | 2025 | Coerkamp: FAI reclassifies 62% of patients | Amsterdam | *Int J Cardiol CV Risk Prev* |
 | 2026 | **Current study**: XCAT + material decomposition for PCAT | Nie S, Molloi (UCI) | *In preparation* |
 
@@ -802,14 +898,20 @@ For multi-site trials, longitudinal monitoring, and cross-scanner comparisons, a
 24. Yuasa et al. *JACC Advances* 2025 — FAI predicts HFpEF hospitalization, n=1,196
 25. Diau & Lange. *Curr Cardiol Rep* 2025 — Review: inflammation in non-obstructive CAD/MINOCA
 26. Němečková et al. *J Clin Med* 2025 — Review: FAI bridging inflammation and CV risk
-27. Tremamunno et al. *Acad Radiol* 2024 — PCD-CT vs EID FAI differences
-28. Chan & Antoniades 2025 — FAI Score standardization proposal
+27. Tremamunno G et al. *Acad Radiol* 2025;32(3). DOI: 10.1016/j.acra.2024.11.055 — PCD-CT vs EID FAI intra-individual differences
+28. Chan & Antoniades 2025 — FAI Score standardization proposal (**editorial comment**: "Pericoronary Adipose Tissue Imaging and the Need for Standardized Measurement of Coronary Inflammation")
 29. Ohyama K et al. 2016–2017 — PVAT inflammation in vasospastic angina (18F-FDG PET)
 30. Moser PT et al. *Eur Radiol* 2023 — FAI in cardiac transplant
 31. Baritussio A et al. *J Clin Med* 2021 — FAI in myocarditis
-32. Boussoussou et al. 2023 — No PCAT-CAD correlation after adjustments (negative study)
+32. Boussoussou et al. *JCCT* 2023 — No PCAT-CAD correlation after multivariable adjustment for imaging/patient factors (n=1,652)
 33. Huang et al. 2025, PMID 41163958 — ShuKun 93-feature PCAT radiomics for MACE
 34. Hou/Liu et al. *Insights Imaging* 2024 — PCAT radiomic signature predicts plaque progression
 35. Iacobellis G. *Nat Rev Endocrinol* 2015 — EAT biology and measurement
 36. Henrichot E et al. *ATVB* 2005 — PVAT macrophage infiltration and inflammation
 37. Ding Y, Molloi S. 2021 — DECT material decomposition for coronary plaque
+38. Hell MM, Achenbach S et al. *JCCT* 2016;10(1):52–60. DOI: 10.1016/j.jcct.2015.07.011 — PCAT density: partial volume effects and image interpolation
+39. Pandey NN et al. *Br J Radiol* 2020;93:20200540 — Epicardial fat attenuation predicts obstructive CAD (counterintuitive lower PCAT in obstructive CAD)
+40. Tan N et al. *JACC* 2023 (Review Topic of the Week) — "Pericoronary Adipose Tissue as a Marker of Cardiovascular Risk" — comprehensive review, "not ready for prime time"
+41. Kravchenko D, Tremamunno G et al. *Int J Cardiol* 2025;420:132749 — PCD vs EID PCAT radiomic analysis (intra-individual)
+42. Kahmann J, Ayx I et al. *Front Cardiovasc Med* 2024;11:1499219 — PCAT texture and CAD on PCD-CT (Mannheim)
+43. Mergen V, Eberhard M, Alkadhi H et al. *AJR* 2021 — EAT/FAI phantom + in vivo on PCD-CT (Zurich)
