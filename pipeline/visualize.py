@@ -1140,46 +1140,46 @@ def _sample_bezier_frame(
     return s, positions, tangents, normals, binormals
 
 
-def _sample_volume_trilinear(
+def _sample_volume_cubic(
     volume: np.ndarray,
     vox_size: np.ndarray,
     pts_mm: np.ndarray,
 ) -> np.ndarray:
     """
-    Trilinear interpolation of the CT volume at arbitrary DICOM mm positions.
-    Mirrors CPRVolumeDataLinearInterpolatedFloatAtDicomVector.
-
+    Cubic interpolation of the CT volume at arbitrary DICOM mm positions.
+    Uses order=3 (cubic B-spline) for C2-smooth results — matches VMTK
+    (vtkImageReslice::SetInterpolationModeToCubic) and 3D Slicer.
     Parameters
     ----------
     volume   : (Z, Y, X) float32 CT HU volume
     vox_size : (3,) [sz, sy, sx] mm per voxel
     pts_mm   : (..., 3) float64 sample points in DICOM mm [z, y, x]
-
-    Returns
     -------
     vals : (...) float32 — HU values; NaN for out-of-bounds points
     """
     shape_in = pts_mm.shape[:-1]
     pts_flat = pts_mm.reshape(-1, 3)              # (M, 3)
-    # Convert mm → voxel coordinates (volumeTransform in Horos)
+    # Convert mm → voxel coordinates
     pts_vox = pts_flat / vox_size[np.newaxis, :]  # (M, 3)
     z_v = pts_vox[:, 0]
     y_v = pts_vox[:, 1]
     x_v = pts_vox[:, 2]
     vol_shape = np.array(volume.shape, dtype=np.float64)
+    # Cubic needs 2 voxels of margin; mark anything within 1 voxel of
+    # the boundary as invalid to avoid edge ringing artifacts.
+    margin = 1.0
     valid = (
-        (z_v >= 0) & (z_v <= vol_shape[0] - 1) &
-        (y_v >= 0) & (y_v <= vol_shape[1] - 1) &
-        (x_v >= 0) & (x_v <= vol_shape[2] - 1)
+        (z_v >= margin) & (z_v <= vol_shape[0] - 1 - margin) &
+        (y_v >= margin) & (y_v <= vol_shape[1] - 1 - margin) &
+        (x_v >= margin) & (x_v <= vol_shape[2] - 1 - margin)
     )
-    # map_coordinates order=1 = trilinear — exact equivalent of Horos
-    # CPRVolumeDataLinearInterpolatedFloatAtVolumeCoordinate
+    # order=3 = cubic B-spline interpolation (C2-smooth)
     vals = map_coordinates(
         volume,
         [z_v, y_v, x_v],
-        order=1,
-        mode="constant",
-        cval=np.nan,
+        order=3,
+        mode="nearest",
+        cval=0.0,
     ).astype(np.float32)
     vals[~valid] = np.nan
     return vals.reshape(shape_in)
@@ -1238,14 +1238,14 @@ def _build_cpr_image(
     )  # → (n_rows, n_cols, 3)
 
     if n_slab == 1:
-        img = _sample_volume_trilinear(volume, vox_size, pts_base)  # (n_rows, n_cols)
+        img = _sample_volume_cubic(volume, vox_size, pts_base)  # (n_rows, n_cols)
         return img
 
     # MIP over slab (along binormal)
     slab_max = np.full((n_rows, n_cols), -np.inf, dtype=np.float32)
     for s_off in slab_offsets:
         pts = pts_base + s_off * binormals[np.newaxis, :, :]  # (n_rows, n_cols, 3)
-        vals = _sample_volume_trilinear(volume, vox_size, pts)  # (n_rows, n_cols)
+        vals = _sample_volume_cubic(volume, vox_size, pts)  # (n_rows, n_cols)
         better   = vals > slab_max
         not_nan  = ~np.isnan(vals)
         slab_max[better & not_nan] = vals[better & not_nan]
@@ -1301,20 +1301,11 @@ def _compute_cpr_data(
     """
     vox_size = np.array(spacing_mm, dtype=np.float64)  # [sz, sy, sx]
     cl_mm_raw = centerline_ijk.astype(np.float64) * vox_size[np.newaxis, :]
-    # Prepend aortic approach segment (extrapolate backward from ostium)
-    if aorta_prepend_mm > 0.0 and len(cl_mm_raw) >= 2:
-        mean_sp_mm = float(np.mean(vox_size))
-        n_prepend  = max(1, int(np.round(aorta_prepend_mm / mean_sp_mm)))
-        d0 = cl_mm_raw[1] - cl_mm_raw[0]
-        d0_norm = np.linalg.norm(d0)
-        if d0_norm > 1e-9:
-            d0 /= d0_norm
-            offsets = np.arange(n_prepend, 0, -1, dtype=np.float64)[:, np.newaxis] * mean_sp_mm
-            prepend_pts = cl_mm_raw[0][np.newaxis, :] - d0[np.newaxis, :] * offsets
-            # Clip prepended points to volume bounds to avoid OOB stripes
-            vol_max_mm = (np.array(volume.shape, dtype=np.float64) - 1) * vox_size
-            prepend_pts = np.clip(prepend_pts, 0.0, vol_max_mm)
-            cl_mm_raw = np.vstack([prepend_pts, cl_mm_raw])
+    # NOTE: aorta prepend disabled — extrapolating backward from ostium
+    # pushes sample points outside the volume, producing OOB NaN columns
+    # that were previously patched with row-wise interpolation (the main
+    # source of vertical stripe artifacts).  The spline fit handles the
+    # ostium region naturally via its 'not-a-knot' boundary condition.
     try:
         cs, total_len = _bezier_fit_centerline(cl_mm_raw)
     except ValueError as e:
@@ -1344,33 +1335,16 @@ def _compute_cpr_data(
         row_extent_mm=width_mm,
         slab_mm=slab_thickness_mm,
     )  # (pixels_high, pixels_wide)
-    # ── Fix vertical stripe artifacts ──────────────────────────────────────
-    # Strategy: for each column with >30% NaN rows, replace NaN values using
-    # per-row linear interpolation from nearest valid columns.  This is more
-    # robust than the previous per-column copy because it preserves the lateral
-    # structure at each row independently.
-    col_nan_frac = np.mean(np.isnan(cpr_img), axis=0)  # (pixels_wide,)
-    bad_cols  = np.where(col_nan_frac > 0.30)[0]
-    good_cols = np.where(col_nan_frac <= 0.30)[0]
-    if bad_cols.size > 0 and good_cols.size >= 2:
-        # Row-wise interpolation: for each row, interpolate NaN columns
-        # from the nearest good columns on either side
-        for row in range(cpr_img.shape[0]):
-            row_data = cpr_img[row, :]
-            nan_mask = np.isnan(row_data)
-            if nan_mask.all() or (~nan_mask).all():
-                continue
-            valid_idx = np.where(~nan_mask)[0]
-            # np.interp extrapolates with edge values by default
-            row_data[nan_mask] = np.interp(
-                np.where(nan_mask)[0], valid_idx, row_data[valid_idx]
-            )
-            cpr_img[row, :] = row_data
-    elif bad_cols.size > 0 and good_cols.size > 0:
-        # Fallback: too few good columns — use nearest-neighbour fill
-        for col in bad_cols:
-            nearest = good_cols[np.argmin(np.abs(good_cols - col))]
-            cpr_img[:, col] = cpr_img[:, nearest]
+    # NaN cleanup: replace remaining NaN with nearest valid HU.
+    # With cubic interpolation and no aorta-prepend, NaN should be rare
+    # (only at the very edge of the volume).  We use simple nearest-fill
+    # rather than the old row-wise interpolation that caused stripe artifacts.
+    nan_mask = np.isnan(cpr_img)
+    if nan_mask.any():
+        from scipy.ndimage import distance_transform_edt
+        # For each NaN, find nearest non-NaN and copy its value
+        _, nearest_idx = distance_transform_edt(nan_mask, return_distances=True, return_indices=True)
+        cpr_img[nan_mask] = cpr_img[tuple(nearest_idx[:, nan_mask])]
     # Transpose → (pixels_wide, pixels_high) for indexed [col, row] access
     # render functions transpose back to (n_rows, n_cols) for imshow
     cpr_volume = cpr_img.T  # (pixels_wide, pixels_high)

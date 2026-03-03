@@ -72,7 +72,7 @@ from pipeline.centerline import (
 )
 from pipeline.visualize import (
     _compute_cpr_data,
-    _sample_volume_trilinear,
+    _sample_volume_cubic,
     _fai_colormap,
     FAI_HU_MIN,
     FAI_HU_MAX,
@@ -134,7 +134,7 @@ class CPRBrowser:
         self._anchor_points: List[Tuple[float, float]] = []  # (arc_length_mm, lateral_offset_mm)
         self._anchor_markers: List[Line2D] = []  # matplotlib marker objects
 
-        # vox_size for _sample_volume_trilinear
+        # vox_size for _sample_volume_cubic
         self._vox_size = np.array(spacing_mm, dtype=np.float64)
 
         # Compute initial CPR data
@@ -390,7 +390,7 @@ class CPRBrowser:
         )
 
         # Sample volume using trilinear interpolation
-        cs_img = _sample_volume_trilinear(self.volume, self._vox_size, pts)
+        cs_img = _sample_volume_cubic(self.volume, self._vox_size, pts)
 
         # Grayscale anatomy
         gray = np.clip(cs_img, -200.0, 400.0)
