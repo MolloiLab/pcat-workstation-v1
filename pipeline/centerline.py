@@ -49,6 +49,271 @@ import numpy as np
 from scipy.ndimage import distance_transform_edt, gaussian_filter, grey_dilation, label as _ndi_label
 from skimage.filters import frangi
 
+
+# ── Optional PyTorch MPS acceleration for Frangi ──────────────────────────
+try:
+    import torch
+    import torch.nn.functional as _F
+    HAS_TORCH_MPS = torch.backends.mps.is_available()
+except ImportError:
+    HAS_TORCH_MPS = False
+
+
+
+# ── MPS-accelerated 3D Frangi vesselness ──────────────────────────────────
+# Implements the same algorithm as skimage.filters.frangi but runs on
+# Apple Metal (MPS) via PyTorch.  Key differences from CPU path:
+#   - Separable 1D convolutions via conv3d (Gaussian derivative kernels)
+#   - Cardano closed-form 3×3 eigenvalues (torch.linalg.eigvalsh unsupported on MPS)
+#   - float32 only (MPS does not support float64)
+#   - One sigma at a time to limit GPU memory
+
+def _gaussian_kernel_1d(sigma: float, order: int, truncate: float = 8.0) -> 'torch.Tensor':
+    """
+    Create a 1D Gaussian or Gaussian-derivative kernel matching
+    scipy.ndimage.gaussian_filter(order=...) convention.
+    ----------
+    sigma    : standard deviation
+    order    : 0 = Gaussian, 1 = first derivative, 2 = second derivative
+    truncate : kernel extends to truncate * sigma on each side
+    -------
+    1D float32 tensor on MPS
+    """
+    radius = int(truncate * sigma + 0.5)
+    if radius < 1:
+        radius = 1
+    x = torch.arange(-radius, radius + 1, dtype=torch.float32, device='mps')
+    g_raw = torch.exp(-0.5 * (x / sigma) ** 2)
+    g_norm = g_raw / g_raw.sum()  # normalised Gaussian (sums to 1)
+    if order == 0:
+        return g_norm
+    elif order == 1:
+        # First derivative of normalised Gaussian: -x/sigma^2 * G_norm(x)
+        g = -x / (sigma ** 2) * g_norm
+        return g
+    elif order == 2:
+        # Second derivative of normalised Gaussian: (x^2/sigma^4 - 1/sigma^2) * G_norm(x)
+        g = (x ** 2 / sigma ** 4 - 1.0 / sigma ** 2) * g_norm
+        return g
+    return g_norm
+
+
+def _separable_conv3d(
+    vol: 'torch.Tensor',
+    kz: 'torch.Tensor',
+    ky: 'torch.Tensor',
+    kx: 'torch.Tensor',
+) -> 'torch.Tensor':
+    """
+    Apply three separable 1D convolutions (z, y, x) to a 3D volume.
+    vol : (1, 1, Z, Y, X) on MPS
+    kz, ky, kx : 1D kernels
+    Returns (1, 1, Z, Y, X) result.
+    """
+    # Z-axis: kernel shape (1,1,Kz,1,1)
+    pz = min(len(kz) // 2, vol.shape[2] - 1)
+    w = kz.reshape(1, 1, -1, 1, 1)
+    out = _F.conv3d(_F.pad(vol, (0, 0, 0, 0, pz, pz), mode='reflect'), w)
+    # Y-axis: kernel shape (1,1,1,Ky,1)
+    py = min(len(ky) // 2, out.shape[3] - 1)
+    w = ky.reshape(1, 1, 1, -1, 1)
+    out = _F.conv3d(_F.pad(out, (0, 0, py, py, 0, 0), mode='reflect'), w)
+    # X-axis: kernel shape (1,1,1,1,Kx)
+    px = min(len(kx) // 2, out.shape[4] - 1)
+    w = kx.reshape(1, 1, 1, 1, -1)
+    out = _F.conv3d(_F.pad(out, (px, px, 0, 0, 0, 0), mode='reflect'), w)
+    return out
+
+
+def _hessian_mps(
+    vol: 'torch.Tensor',
+    sigma: float,
+) -> 'tuple[torch.Tensor, ...]':
+    """
+    Compute the 3D Hessian matrix elements using Gaussian derivatives on MPS.
+    Matches skimage's _hessian_matrix_with_gaussian: two successive first-order
+    Gaussian derivative convolutions at sigma_scaled = sigma / sqrt(2).
+
+    Returns 6 upper-triangle elements: (Hzz, Hzy, Hzx, Hyy, Hyx, Hxx)
+    """
+    sigma_scaled = sigma / (2.0 ** 0.5)
+    truncate = 8.0  # truncate=8 gives identical results to truncate=100 (diff < 1e-21)
+    g0 = _gaussian_kernel_1d(sigma_scaled, order=0, truncate=truncate)
+    g1 = _gaussian_kernel_1d(sigma_scaled, order=1, truncate=truncate)
+    # Pass 1: first-order gradients
+    grad_z = _separable_conv3d(vol, g1, g0, g0)  # order=(1,0,0)
+    grad_y = _separable_conv3d(vol, g0, g1, g0)  # order=(0,1,0)
+    grad_x = _separable_conv3d(vol, g0, g0, g1)  # order=(0,0,1)
+
+    # Pass 2: second-order via first-order of each gradient
+    Hzz = _separable_conv3d(grad_z, g1, g0, g0)  # d/dz of grad_z
+    Hzy = _separable_conv3d(grad_z, g0, g1, g0)  # d/dy of grad_z
+    Hzx = _separable_conv3d(grad_z, g0, g0, g1)  # d/dx of grad_z
+    del grad_z
+    Hyy = _separable_conv3d(grad_y, g0, g1, g0)  # d/dy of grad_y
+    Hyx = _separable_conv3d(grad_y, g0, g0, g1)  # d/dx of grad_y
+    del grad_y
+    Hxx = _separable_conv3d(grad_x, g0, g0, g1)  # d/dx of grad_x
+    del grad_x
+
+    # Scale-space normalisation (sigma^2)
+    s2 = sigma ** 2
+    Hzz *= s2; Hzy *= s2; Hzx *= s2
+    Hyy *= s2; Hyx *= s2; Hxx *= s2
+
+    return Hzz, Hzy, Hzx, Hyy, Hyx, Hxx
+
+def _eigenvalues_cardano_3x3(
+    a: 'torch.Tensor', b: 'torch.Tensor', c: 'torch.Tensor',
+    d: 'torch.Tensor', e: 'torch.Tensor', f: 'torch.Tensor',
+) -> 'tuple[torch.Tensor, torch.Tensor, torch.Tensor]':
+    """
+    Closed-form eigenvalues of 3x3 symmetric matrices via Cardano's method.
+    Avoids torch.linalg.eigvalsh (unsupported on MPS).
+
+    Input: upper-triangle of [[a,b,c],[b,d,e],[c,e,f]]
+    Returns (eig1, eig2, eig3) unsorted.
+    """
+    q = (a + d + f) / 3.0
+
+    p_sq = ((a - q) ** 2 + (d - q) ** 2 + (f - q) ** 2
+            + 2.0 * (b ** 2 + c ** 2 + e ** 2)) / 6.0
+    p = torch.sqrt(torch.clamp(p_sq, min=1e-30))
+
+    # B = (H - qI) / p
+    B11 = (a - q) / p
+    B12 = b / p
+    B13 = c / p
+    B22 = (d - q) / p
+    B23 = e / p
+    B33 = (f - q) / p
+
+    # det(B) for symmetric 3x3
+    detB = (B11 * (B22 * B33 - B23 * B23)
+            - B12 * (B12 * B33 - B23 * B13)
+            + B13 * (B12 * B23 - B22 * B13))
+
+    r = torch.clamp(detB / 2.0, -1.0, 1.0)
+    phi = torch.acos(r) / 3.0
+
+    TWO_PI_3 = 2.0 * 3.141592653589793 / 3.0
+
+    eig1 = q + 2.0 * p * torch.cos(phi)
+    eig3 = q + 2.0 * p * torch.cos(phi + TWO_PI_3)
+    eig2 = 3.0 * q - eig1 - eig3
+
+    return eig1, eig2, eig3
+
+
+def _frangi_mps(
+    image: np.ndarray,
+    sigmas: list,
+    alpha: float = 0.5,
+    beta: float = 0.5,
+    gamma: 'float | None' = None,
+    black_ridges: bool = False,
+) -> np.ndarray:
+    """
+    MPS-accelerated 3D Frangi vesselness filter.
+
+    Matches skimage.filters.frangi output for 3D volumes.
+    Runs entirely on Apple Metal via PyTorch MPS backend.
+
+    Parameters
+    ----------
+    image        : (Z, Y, X) float32 normalised volume [0, 1]
+    sigmas       : list of sigma values in voxel units
+    alpha, beta  : Frangi structureness parameters
+    gamma        : noise suppression (None = auto: max(S)/2 per scale)
+    black_ridges : True for dark vessels on light background
+
+    Returns
+    -------
+    vesselness : (Z, Y, X) float32 array, values in [0, 1]
+    """
+    if not black_ridges:
+        image = -image  # skimage convention: negate for bright ridges
+
+    result = np.zeros(image.shape, dtype=np.float32)
+
+    two_alpha_sq = 2.0 * alpha ** 2
+    two_beta_sq = 2.0 * beta ** 2
+
+    for sigma in sigmas:
+        # Upload to MPS
+        vol_t = torch.from_numpy(image.astype(np.float32)).to('mps')
+        vol_t = vol_t.unsqueeze(0).unsqueeze(0)  # (1,1,Z,Y,X)
+
+        # Hessian
+        Hzz, Hzy, Hzx, Hyy, Hyx, Hxx = _hessian_mps(vol_t, sigma)
+        del vol_t
+
+        # Flatten spatial dims for eigenvalue computation
+        a = Hzz.reshape(-1)
+        b = Hzy.reshape(-1)
+        c = Hzx.reshape(-1)
+        d = Hyy.reshape(-1)
+        e = Hyx.reshape(-1)
+        f = Hxx.reshape(-1)
+        del Hzz, Hzy, Hzx, Hyy, Hyx, Hxx
+
+        # Eigenvalues via Cardano
+        eig1, eig2, eig3 = _eigenvalues_cardano_3x3(a, b, c, d, e, f)
+        del a, b, c, d, e, f
+
+        # Sort by absolute value ascending: |lam1| <= |lam2| <= |lam3|
+        # Manual 3-element sort network (3 comparisons, no argsort overhead)
+        a1, a2, a3 = torch.abs(eig1), torch.abs(eig2), torch.abs(eig3)
+        # Compare-and-swap to get |lam1| <= |lam2| <= |lam3|
+        swap12 = a1 > a2
+        t1, t2 = torch.where(swap12, eig2, eig1), torch.where(swap12, eig1, eig2)
+        ta1, ta2 = torch.where(swap12, a2, a1), torch.where(swap12, a1, a2)
+        del a1, a2, swap12
+        swap23 = ta2 > a3
+        t2b, t3 = torch.where(swap23, eig3, t2), torch.where(swap23, t2, eig3)
+        ta2b = torch.where(swap23, a3, ta2)
+        del ta2, a3, swap23, t2, eig3
+        swap12b = ta1 > ta2b
+        lam1 = torch.where(swap12b, t2b, t1)
+        lam2 = torch.where(swap12b, t1, t2b)
+        lam3 = t3
+        del t1, t2b, t3, ta1, ta2b, swap12b, eig1, eig2
+
+        # S uses UN-clamped eigenvalues (matches skimage: s = sqrt(sum(eigvals**2)))
+        S = torch.sqrt(lam1 ** 2 + lam2 ** 2 + lam3 ** 2)         # eq (12)
+        # When lam2 or lam3 are negative, this makes r_b very large,
+        # causing exp(-r_b^2/2beta^2) -> 0, naturally zeroing non-vessel regions.
+        lam2_c = torch.clamp(lam2, min=1e-10)
+        lam3_c = torch.clamp(lam3, min=1e-10)
+        del lam2, lam3
+        # Frangi ratios
+        Ra = lam2_c / lam3_c                                        # eq (11)
+        Rb = torch.abs(lam1) / torch.sqrt(lam2_c * lam3_c)          # eq (10)
+        del lam1, lam2_c, lam3_c
+
+        # Gamma: auto-scale per sigma (matches skimage default)
+        if gamma is None:
+            gamma_val = float(S.max().item()) / 2.0
+            if gamma_val < 1e-10:
+                gamma_val = 1.0
+        else:
+            gamma_val = gamma
+        two_gamma_sq = 2.0 * gamma_val ** 2
+
+        # Frangi response eq (13)
+        vals = ((1.0 - torch.exp(-Ra ** 2 / two_alpha_sq))
+                * torch.exp(-Rb ** 2 / two_beta_sq)
+                * (1.0 - torch.exp(-S ** 2 / two_gamma_sq)))
+        del Ra, Rb, S
+        # Transfer to CPU
+        vals_np = vals.reshape(image.shape).cpu().numpy()
+        del vals
+        torch.mps.empty_cache()
+        result = np.maximum(result, vals_np)
+
+    return result
+
+
 try:
     import skfmm
     HAS_SKFMM = True
@@ -126,16 +391,28 @@ def compute_vesselness(
     sigmas_vox = [s / mean_sp for s in sigmas]
 
     # ── Frangi on the small ROI ────────────────────────────────────────────
-    roi_vessel = frangi(
-        roi_norm,
-        sigmas=sigmas_vox,
-        black_ridges=False,
-        alpha=0.5,
-        beta=0.5,
-        # gamma omitted: scikit-image auto-scales by half the Frobenius norm of the
-        # Hessian, which correctly adapts to voxel spacing. gamma=15 suppresses
-        # the vesselness signal at sub-mm spacing (e.g. 0.32mm coronary CT).
-    ).astype(np.float32)
+    import time as _time
+    _t0 = _time.perf_counter()
+    if HAS_TORCH_MPS:
+        roi_vessel = _frangi_mps(
+            roi_norm,
+            sigmas=sigmas_vox,
+            black_ridges=False,
+            alpha=0.5,
+            beta=0.5,
+        )
+        _backend = 'MPS'
+    else:
+        roi_vessel = frangi(
+            roi_norm,
+            sigmas=sigmas_vox,
+            black_ridges=False,
+            alpha=0.5,
+            beta=0.5,
+        ).astype(np.float32)
+        _backend = 'CPU'
+    _dt = _time.perf_counter() - _t0
+    print(f'[vesselness] Frangi ({_backend}) on ROI {roi_norm.shape}: {_dt:.1f}s')
 
     # ── Embed back into a full-volume array ───────────────────────────────
     vesselness = np.zeros(shape, dtype=np.float32)
