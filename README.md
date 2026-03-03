@@ -10,7 +10,7 @@ Automatically measures fat around coronary arteries from a cardiac CT scan (CCTA
 2. Lets you review and refine the coronary seed locations
 3. Computes Frangi vesselness filtering and extracts centerlines
 4. Extracts real vessel wall contours via polar-transform boundary detection
-5. Lets you correct contours in a game-style interactive editor
+5. Lets you correct contours in an interactive clinical editor
 6. Builds PCAT VOI from contours (3× vessel radius) and computes FAI
 7. Generates CPR images, histograms, and statistics
 
@@ -89,24 +89,30 @@ For each vessel (LAD, LCX, RCA) the pipeline automatically:
 
 Generates a static overlay image showing extracted centerlines on top of the CT volume, with TotalSegmentator coronary segmentation mask if available. Saved to `plots/`.
 
-### Stage 6 — Contour Game Editor
+### Stage 6 — Contour Editor
 
-Opens a game-style GUI for reviewing and correcting the auto-extracted vessel wall contours before PCAT computation.
+Opens a clinical GUI for reviewing and correcting the auto-extracted vessel wall contours before PCAT computation.
 
 **Vessel colors:** LAD = red-orange · LCX = blue · RCA = green
 
 | Key / Action | Effect |
 |---|---|
 | `1` / `2` / `3` | Switch active vessel |
-| `←` / `→` | Navigate along vessel (previous / next cross-section) |
-| Click + drag control points | Adjust vessel wall contour shape |
+| `←` / `→` | Navigate ±1 cross-section position |
+| `↑` / `↓` | Navigate ±5 positions |
+| Left-click drag control points | Adjust vessel wall contour shape |
+| Right-click drag | Scissors/lasso tool (fill or erase region) |
+| `E` | Toggle scissors mode (fill ↔ erase) |
+| `I` | Fill between slices (interpolate modified positions) |
 | `R` | Reset current contour to auto-detected |
+| `Space` | Toggle contour visibility |
+| `V` | Toggle VOI ring visibility |
+| Scroll wheel | Zoom cross-section view |
 | `S` | **Save corrected contours & continue pipeline** |
 | `Q` | Quit without saving (uses auto-detected contours) |
-
-The editor shows:
-- **Left panel:** CPR cross-section with vessel wall contour (cyan) and PCAT VOI boundary (yellow)
-- **Right panel:** Longitudinal CPR view with all contour positions marked
+- **Left panel:** CPR cross-section with vessel wall contour and control points
+- **Right panel:** Vessel overview — r_eq profile along arc-length with modification markers
+- **Separate window:** 3D pyvista visualization with colored vessel meshes and semi-transparent fat volume
 
 ### Stage 7 — VOI construction & FAI computation (~3 s)
 
@@ -209,7 +215,7 @@ output/patient_1200/
 │   ├── patient1200_LAD_radial_profile.png       # Fat HU vs. distance from wall
 │   └── patient1200_summary.png                  # Bar charts: FAI, fat fraction, voxel count
 └── raw/
-    ├── patient1200_contour_data.npz             # Vessel wall contours (for game editor)
+    ├── patient1200_contour_data.npz             # Vessel wall contours (for contour editor)
     ├── patient1200_LAD_voi.raw                  # Per-vessel VOI volume
     ├── patient1200_LAD_voi_metadata.json        # Volume dimensions, spacing, origin
     ├── patient1200_combined_voi.raw             # All-vessel combined VOI
@@ -238,7 +244,7 @@ These can be run independently outside the pipeline:
 | `pipeline/seed_picker.py` | Manual seed placement: `python pipeline/seed_picker.py --dicom <dir> --output seeds/patient.json` |
 | `pipeline/seed_reviewer.py` | Review/edit seeds: `python pipeline/seed_reviewer.py --dicom <dir> --seeds <json> --output <json>` |
 | `pipeline/cpr_browser.py` | Browse CPR interactively: `python pipeline/cpr_browser.py --dicom <dir> --seeds <json> --vessel LAD` |
-| `pipeline/contour_game_editor.py` | Edit vessel contours: `python pipeline/contour_game_editor.py --dicom <dir> --contour-data <npz> --output <dir> --prefix <name>` |
+| `pipeline/contour_editor.py` | Edit vessel contours: `python pipeline/contour_editor.py --dicom <dir> --contour-data <npz> --output <dir> --prefix <name>` |
 | `pipeline/coronary_contour_editor.py` | Legacy contour editor: `python pipeline/coronary_contour_editor.py --dicom <dir> --data <npz> --output <dir> --prefix <name>` |
 
 ---

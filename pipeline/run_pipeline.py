@@ -542,9 +542,9 @@ def run_patient(
             except Exception as _e:
                 print(f"[pipeline] WARNING: contour editor error: {_e}")
     else:
-        # New mode: use contour_game_editor
+        # New mode: use contour_editor
         if not skip_editor and vessel_contour_results:
-            print("\n[pipeline] Launching Contour Game Editor...")
+            print("\n[pipeline] Launching Contour Editor...")
             print("[pipeline] Adjust vessel wall contours, then press 'S' to save and continue.")
             contour_data_path = raw_dir / f"{prefix}_contour_data.npz"
             try:
@@ -553,7 +553,7 @@ def run_patient(
                 _subprocess.run(
                     [
                         _sys.executable,
-                        str(Path(__file__).parent / "contour_game_editor.py"),
+                        str(Path(__file__).parent / "contour_editor.py"),
                         "--dicom",        str(dicom_dir),
                         "--contour-data", str(contour_data_path),
                         "--output",       str(raw_dir),
@@ -562,11 +562,11 @@ def run_patient(
                     check=False,
                 )
             except Exception as _e:
-                print(f"[pipeline] WARNING: contour game editor error: {_e}")
+                print(f"[pipeline] WARNING: contour editor error: {_e}")
 
             # Load corrected contours if available
             corrected_path = raw_dir / f"{prefix}_contour_data_corrected.npz"
-            signal_path = raw_dir / f"{prefix}_contour_game_editor.done"
+            signal_path = raw_dir / f"{prefix}_contour_editor.done"
             if corrected_path.exists() and signal_path.exists():
                 corrected_data = np.load(str(corrected_path), allow_pickle=True)
                 n_angles = vessel_contour_results[list(vessel_contour_results.keys())[0]].r_theta.shape[1]
@@ -585,10 +585,10 @@ def run_patient(
                             _contour_to_cartesian(cr.r_theta[i], angles, cr.positions_mm[i], cr.N_frame[i], cr.B_frame[i])
                             for i in range(len(cr.positions_mm))
                         ]
-                print("[pipeline] Contour game editor: corrections loaded.")
+                print("[pipeline] Contour editor: corrections loaded.")
                 signal_path.unlink(missing_ok=True)
             else:
-                print("[pipeline] Contour game editor closed without saving. Using auto-detected contours.")
+                print("[pipeline] Contour editor closed without saving. Using auto-detected contours.")
 
         # Build contour-based VOI for each vessel
         for vessel_name, cr in vessel_contour_results.items():
