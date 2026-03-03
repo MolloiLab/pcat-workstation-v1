@@ -25,13 +25,15 @@ Full pipeline per patient:
   4. For each vessel (LAD, LCX, RCA):
      a. Extract centerline via FMM/Dijkstra shortest path from seeds
      b. Clip to proximal segment (40mm for LAD/LCX; 10–50mm for RCA)
-     c. Estimate vessel radii via EDT
-     d. Build tubular VOI mask (outer shell = mean_diameter thick)
-     e. Export per-vessel .raw + metadata JSON
-     f. Plot: CPR FAI, HU histogram, radial HU profile
-  5. Compute combined (all-vessel) VOI and export as single .raw
-  6. Render combined 3D VOI visualization
-  7. Write per-patient stats JSON
+     c. Extract vessel wall contours via polar-transform boundary detection
+     d. Estimate vessel radii via EDT (for CPR rendering)
+  5. Centerline verification visualization (with TotalSeg overlay if available)
+  6. Interactive contour correction (game-style GUI editor)
+  7. Build contour-based PCAT VOI masks from corrected contours
+  8. Generate outputs: per-vessel stats, .raw exports, CPR visualizations
+  9. Interactive CPR browser (one per vessel)
+  10. Combined VOI export + 3D visualization
+  11. Write per-patient stats JSON + summary chart
 """
 
 from __future__ import annotations
@@ -66,6 +68,11 @@ from pipeline.pcat_segment import (
     build_tubular_voi,
     apply_fai_filter,
     compute_pcat_stats,
+)
+from pipeline.contour_extraction import (
+    extract_vessel_contours,
+    build_contour_based_voi,
+    _contour_to_cartesian,
 )
 from pipeline.export_raw import export_voi_raw, export_combined_voi_raw
 from pipeline.visualize import (
@@ -188,6 +195,7 @@ def run_patient(
     skip_3d: bool = False,
     skip_editor: bool = False,
     skip_cpr_browser: bool = False,
+    legacy_voi: bool = False,
     vesselness_sigmas: Optional[List[float]] = None,
     auto_seeds: bool = False,
     auto_seeds_device: str = _DEFAULT_DEVICE,
@@ -323,6 +331,7 @@ def run_patient(
     vessel_radii_full_dict: Dict[str, np.ndarray] = {}
     vessel_centerlines_proximal: Dict[str, np.ndarray] = {}
     vessel_stats: Dict[str, Any] = {}
+    vessel_contour_results: Dict[str, Any] = {}
 
     for vessel_name in vessels:
         print(f"\n[pipeline] ── Processing {vessel_name} ──────────────────────")
@@ -393,17 +402,27 @@ def run_patient(
         print(f"[pipeline] Full radii: mean={radii_mm_full.mean():.2f} mm, range={radii_mm_full.min():.2f}–{radii_mm_full.max():.2f} mm")
         vessel_radii_full_dict[vessel_name] = radii_mm_full
 
-        # ── Build VOI ──────────────────────────────────────────────────
-        print(f"[pipeline] Building {vessel_name} tubular VOI...")
-        voi_mask = build_tubular_voi(volume.shape, centerline, spacing_mm, radii_mm)
-        print(f"[pipeline] VOI voxels (auto): {voi_mask.sum():,}")
-
-
-        # VOI editor removed — vessel wall review is handled by coronary_contour_editor
-        # (launched after all vessels are processed)
-        vessel_voi_masks[vessel_name] = voi_mask
-        # Store original mask for 3D render + combined export
-        # Store reviewed (or original if skip_editor) mask for 3D render + combined export
+        # ── Build VOI (legacy mode) or Extract contours (new default) ────────────────────
+        if legacy_voi:
+            # Legacy: Build tubular VOI via EDT
+            print(f"[pipeline] Building {vessel_name} tubular VOI (legacy mode)...")
+            voi_mask = build_tubular_voi(volume.shape, centerline, spacing_mm, radii_mm)
+            print(f"[pipeline] VOI voxels (auto): {voi_mask.sum():,}")
+            vessel_voi_masks[vessel_name] = voi_mask
+        else:
+            # New default: Extract vessel wall contours via polar transform
+            print(f"[pipeline] Extracting {vessel_name} vessel wall contours...")
+            contour_result = extract_vessel_contours(
+                volume, centerline, spacing_mm, vessel_name=vessel_name
+            )
+            vessel_contour_results[vessel_name] = contour_result
+            # Print contour extraction stats
+            n_fallback = int(contour_result.fallback_mask.sum())
+            print(
+                f"[pipeline] {vessel_name} contours: r_eq mean={np.mean(contour_result.r_eq):.2f} mm, "
+                f"fallback={n_fallback}/{len(contour_result.r_eq)} positions"
+            )
+            # VOI will be built later after contour editor corrections
 
         print(f"[pipeline] {vessel_name} data ready in {time.time() - t_vsl:.1f}s")
 
@@ -440,67 +459,152 @@ def run_patient(
     )
     results["outputs"].append(str(verify_path))
 
-
-    # ── Step 3b: Coronary Artery Contour Editor ──────────────────────────────
-    # Launch interactive editor to review/adjust centerlines and vessel wall contours.
-    # This updates vessel_voi_masks and vessel_centerlines in place.
-    # Launched as subprocess to avoid matplotlib backend conflict (Bug 4 fix).
-    if not skip_editor and vessel_voi_masks:
-        print("\n[pipeline] Launching Coronary Artery Contour Editor...")
-        print("[pipeline] Review centerlines and vessel walls, add PCAT volume, then close.")
-        
-        # Save vessel data to .npz file for subprocess
+    # ── Save contour data for game editor (new mode only) ────────────────────
+    if not legacy_voi and vessel_contour_results:
         contour_data_path = raw_dir / f"{prefix}_contour_data.npz"
         save_data = {}
-        for vessel_name in vessel_centerlines:
-            save_data[f"{vessel_name}_centerline"] = vessel_centerlines[vessel_name]
-        for vessel_name in vessel_radii_dict:
-            save_data[f"{vessel_name}_radii"] = vessel_radii_full_dict.get(vessel_name, vessel_radii_dict[vessel_name])
-        for vessel_name in vessel_voi_masks:
-            save_data[f"{vessel_name}_voi_mask"] = vessel_voi_masks[vessel_name]
-        np.savez(str(contour_data_path), **save_data)
-        print(f"[pipeline] Saved vessel data to {contour_data_path}")
-        
-        # Launch contour editor as subprocess
-        try:
-            import subprocess as _subprocess
-            import sys as _sys
-            _subprocess.run(
-                [
-                    _sys.executable,
-                    str(Path(__file__).parent / "coronary_contour_editor.py"),
-                    "--dicom",  str(dicom_dir),
-                    "--data",   str(contour_data_path),
-                    "--output", str(raw_dir),
-                    "--prefix", prefix,
-                ],
-                check=False,
+        for vessel_name, cr in vessel_contour_results.items():
+            save_data[f"{vessel_name}_r_theta"] = cr.r_theta
+            save_data[f"{vessel_name}_positions_mm"] = cr.positions_mm
+            save_data[f"{vessel_name}_N_frame"] = cr.N_frame
+            save_data[f"{vessel_name}_B_frame"] = cr.B_frame
+            save_data[f"{vessel_name}_r_eq"] = cr.r_eq
+            save_data[f"{vessel_name}_arclengths"] = cr.arclengths
+            save_data[f"{vessel_name}_fallback_mask"] = cr.fallback_mask
+            # Also include centerline for reference
+            save_data[f"{vessel_name}_centerline"] = vessel_centerlines_proximal.get(
+                vessel_name, cr.positions_mm / np.array(spacing_mm)
             )
+        np.savez(str(contour_data_path), **save_data)
+        print(f"[pipeline] Saved contour data to {contour_data_path}")
+
+
+    # ── Step 3b: Contour Editor ─────────────────────────────────────────────
+    # Launch interactive editor to review/adjust centerlines and vessel wall contours.
+    # This updates vessel_voi_masks and vessel_centerlines in place.
+    # Launched as subprocess to avoid matplotlib backend conflict.
+    if legacy_voi:
+        # Legacy mode: use old coronary_contour_editor
+        if not skip_editor and vessel_voi_masks:
+            print("\n[pipeline] Launching Coronary Artery Contour Editor (legacy mode)...")
+            print("[pipeline] Review centerlines and vessel walls, add PCAT volume, then close.")
             
-            # Load updated data from .npz file
-            updated_data_path = raw_dir / f"{prefix}_contour_data_updated.npz"
-            if updated_data_path.exists():
-                updated_data = np.load(str(updated_data_path), allow_pickle=True)
-                for key in updated_data.files:
-                    if key.endswith("_centerline"):
-                        vessel_name = key.replace("_centerline", "")
-                        vessel_centerlines[vessel_name] = updated_data[key]
-                    elif key.endswith("_radii"):
-                        vessel_name = key.replace("_radii", "")
-                        vessel_radii_dict[vessel_name] = updated_data[key]
-                    elif key.endswith("_voi_mask"):
-                        vessel_name = key.replace("_voi_mask", "")
-                        vessel_voi_masks[vessel_name] = updated_data[key]
-                print("[pipeline] Contour editor: masks and centerlines updated.")
-                # Clean up temp files
-                contour_data_path.unlink(missing_ok=True)
-                updated_data_path.unlink(missing_ok=True)
-            else:
-                print("[pipeline] Contour editor closed without saving changes.")
-                contour_data_path.unlink(missing_ok=True)
+            # Save vessel data to .npz file for subprocess
+            contour_data_path = raw_dir / f"{prefix}_contour_data.npz"
+            save_data = {}
+            for vessel_name in vessel_centerlines:
+                save_data[f"{vessel_name}_centerline"] = vessel_centerlines[vessel_name]
+            for vessel_name in vessel_radii_dict:
+                save_data[f"{vessel_name}_radii"] = vessel_radii_full_dict.get(vessel_name, vessel_radii_dict[vessel_name])
+            for vessel_name in vessel_voi_masks:
+                save_data[f"{vessel_name}_voi_mask"] = vessel_voi_masks[vessel_name]
+            np.savez(str(contour_data_path), **save_data)
+            print(f"[pipeline] Saved vessel data to {contour_data_path}")
+            
+            # Launch contour editor as subprocess
+            try:
+                import subprocess as _subprocess
+                import sys as _sys
+                _subprocess.run(
+                    [
+                        _sys.executable,
+                        str(Path(__file__).parent / "coronary_contour_editor.py"),
+                        "--dicom",  str(dicom_dir),
+                        "--data",   str(contour_data_path),
+                        "--output", str(raw_dir),
+                        "--prefix", prefix,
+                    ],
+                    check=False,
+                )
                 
-        except Exception as _e:
-            print(f"[pipeline] WARNING: contour editor error: {_e}")
+                # Load updated data from .npz file
+                updated_data_path = raw_dir / f"{prefix}_contour_data_updated.npz"
+                if updated_data_path.exists():
+                    updated_data = np.load(str(updated_data_path), allow_pickle=True)
+                    for key in updated_data.files:
+                        if key.endswith("_centerline"):
+                            vessel_name = key.replace("_centerline", "")
+                            vessel_centerlines[vessel_name] = updated_data[key]
+                        elif key.endswith("_radii"):
+                            vessel_name = key.replace("_radii", "")
+                            vessel_radii_dict[vessel_name] = updated_data[key]
+                        elif key.endswith("_voi_mask"):
+                            vessel_name = key.replace("_voi_mask", "")
+                            vessel_voi_masks[vessel_name] = updated_data[key]
+                    print("[pipeline] Contour editor: masks and centerlines updated.")
+                    # Clean up temp files
+                    contour_data_path.unlink(missing_ok=True)
+                    updated_data_path.unlink(missing_ok=True)
+                else:
+                    print("[pipeline] Contour editor closed without saving changes.")
+                    contour_data_path.unlink(missing_ok=True)
+                    
+            except Exception as _e:
+                print(f"[pipeline] WARNING: contour editor error: {_e}")
+    else:
+        # New mode: use contour_game_editor
+        if not skip_editor and vessel_contour_results:
+            print("\n[pipeline] Launching Contour Game Editor...")
+            print("[pipeline] Adjust vessel wall contours, then press 'S' to save and continue.")
+            contour_data_path = raw_dir / f"{prefix}_contour_data.npz"
+            try:
+                import subprocess as _subprocess
+                import sys as _sys
+                _subprocess.run(
+                    [
+                        _sys.executable,
+                        str(Path(__file__).parent / "contour_game_editor.py"),
+                        "--dicom",        str(dicom_dir),
+                        "--contour-data", str(contour_data_path),
+                        "--output",       str(raw_dir),
+                        "--prefix",       prefix,
+                    ],
+                    check=False,
+                )
+            except Exception as _e:
+                print(f"[pipeline] WARNING: contour game editor error: {_e}")
+
+            # Load corrected contours if available
+            corrected_path = raw_dir / f"{prefix}_contour_data_corrected.npz"
+            signal_path = raw_dir / f"{prefix}_contour_game_editor.done"
+            if corrected_path.exists() and signal_path.exists():
+                corrected_data = np.load(str(corrected_path), allow_pickle=True)
+                n_angles = vessel_contour_results[list(vessel_contour_results.keys())[0]].r_theta.shape[1]
+                angles = np.linspace(0.0, 2.0 * np.pi, n_angles, endpoint=False)
+                for vessel_name in list(vessel_contour_results.keys()):
+                    cr = vessel_contour_results[vessel_name]
+                    key = f"{vessel_name}_r_theta_corrected"
+                    if key in corrected_data:
+                        cr.r_theta[:] = corrected_data[key]
+                        # Also update r_eq from corrected contours
+                        key_req = f"{vessel_name}_r_eq"
+                        if key_req in corrected_data:
+                            cr.r_eq[:] = corrected_data[key_req]
+                        # Recompute contours from corrected r_theta
+                        cr.contours = [
+                            _contour_to_cartesian(cr.r_theta[i], angles, cr.positions_mm[i], cr.N_frame[i], cr.B_frame[i])
+                            for i in range(len(cr.positions_mm))
+                        ]
+                print("[pipeline] Contour game editor: corrections loaded.")
+                signal_path.unlink(missing_ok=True)
+            else:
+                print("[pipeline] Contour game editor closed without saving. Using auto-detected contours.")
+
+        # Build contour-based VOI for each vessel
+        for vessel_name, cr in vessel_contour_results.items():
+            print(f"[pipeline] Building contour-based VOI for {vessel_name}...")
+            voi_mask = build_contour_based_voi(
+                volume_shape=volume.shape,
+                contours=cr.contours,
+                centerline_mm=cr.positions_mm,
+                N_frame=cr.N_frame,
+                B_frame=cr.B_frame,
+                r_eq=cr.r_eq,
+                spacing_mm=spacing_mm,
+                pcat_scale=3.0,
+            )
+            vessel_voi_masks[vessel_name] = voi_mask
+            print(f"[pipeline] {vessel_name} contour-based VOI: {voi_mask.sum():,} voxels")
 
     # ── Step 3b½: Generate outputs (AFTER contour editor adjustments) ────────
     # Stats, exports, and visualizations use potentially updated centerlines,
@@ -771,6 +875,14 @@ def main():
         ),
     )
     parser.add_argument(
+        "--legacy-voi", action="store_true",
+        dest="legacy_voi",
+        help=(
+            "Use legacy circle-based VOI construction (EDT + tubular mask) "
+            "instead of polar-transform contour extraction. Faster but less accurate."
+        ),
+    )
+    parser.add_argument(
         "--project-root", type=str, default=".",
         help="Project root directory (for resolving relative paths in batch mode)"
     )
@@ -831,6 +943,7 @@ def main():
                     skip_3d=args.skip_3d,
                     skip_editor=args.skip_editor,
                     skip_cpr_browser=args.skip_cpr_browser,
+                    legacy_voi=args.legacy_voi,
                     auto_seeds=args.auto_seeds,
                     auto_seeds_device=args.auto_seeds_device,
                     auto_seeds_license=args.auto_seeds_license,
@@ -863,6 +976,7 @@ def main():
             skip_3d=args.skip_3d,
             skip_editor=args.skip_editor,
             skip_cpr_browser=args.skip_cpr_browser,
+            legacy_voi=args.legacy_voi,
             auto_seeds=args.auto_seeds,
             auto_seeds_device=args.auto_seeds_device,
             auto_seeds_license=args.auto_seeds_license,
