@@ -1,484 +1,346 @@
-# Literature Review: PCAT Quantification, Material Decomposition, and Coronary CT Imaging
+# Literature Review: Automated PCAT Segmentation and Coronary Centerline Extraction
 
 **Project**: PCAT Segmentation Pipeline — MolloiLab  
-**Date**: March 2026  
-**Purpose**: Comprehensive paper-by-paper literature review organised by topic — covering FAI methodology, technical confounders, material decomposition, XCAT simulation, coronary centerline extraction, and commercial PCAT tools. Synthesised from ~103 papers across two source folders.
+**Date**: February 2026  
+**Purpose**: Understand the algorithmic methods behind commercial CCTA PCAT analysis software (ShuKun Technology, Siemens syngo.via) to benchmark our pipeline and identify upgrade paths.
 
 ---
 
-## 1. FAI Foundational Studies
+## 1. Background: Fat Attenuation Index (FAI) and PCAT
 
-### 1.1 Antonopoulos et al. 2017 — Histological Validation of FAI
+### Biological Basis
 
-> Antonopoulos AS, Sanna F, Sabharwal N, et al. "Detecting human coronary inflammation by imaging perivascular fat." *Science Translational Medicine*. 2017;9(398):eaal2658.
+Pericoronary adipose tissue (PCAT) surrounds the coronary arteries and communicates bidirectionally with the vessel wall through paracrine signalling. When a coronary artery is inflamed, it inhibits adipogenesis in the immediately adjacent fat, causing a reversible phenotypic shift from the lipid phase toward the aqueous phase. This shift is detectable on CT as an *increase* in HU (less negative) of the perivascular fat.
 
-- **Study**: n=453 cardiac surgery patients with matched CT and perivascular fat biopsies
-- **Key finding**: CT attenuation of pericoronary fat directly corresponds to adipocyte lipid content; inflamed vessels have adjacent fat with smaller lipid droplets, reduced PPARγ/FABP4 expression, and increased IL-6/TNF-α
-- **Innovation**: First histological proof that FAI reflects genuine biological phenotypic shift, not artifact
-- **Clinical relevance**: Established the molecular mechanism underlying FAI — vasocrine signalling from inflamed vessel wall suppresses adipogenesis in adjacent PCAT
+The **Fat Attenuation Index (FAI)** quantifies this signal as the mean HU of all adipose-range voxels in the pericoronary volume of interest (VOI).
 
-### 1.2 Oikonomou et al. 2018 — CRISP-CT (FAI Prognostic Validation)
+### Foundational Publication
 
-> Oikonomou EK, Marwan M, Desai MY, et al. *Lancet*. 2018;392(10151):929–939. PMID: 30170852
+> Oikonomou EK, Marwan M, Desai MY, et al. "Non-invasive detection of coronary inflammation using computed tomography and prediction of residual cardiovascular risk." *Lancet*. 2018;392(10151):929-939. PMID: 30170852
 
-- **Study**: n=1,872 patients undergoing clinically indicated CCTA; derivation (Erlangen) + validation (Cleveland Clinic) cohorts
-- **Key findings**: RCA-FAI independently predicted cardiac death at 5 years (HR 9.04, 95% CI 2.12–38.6); optimal cutoff −70.1 HU by ROC (AUC=0.76)
-- **Technical specifications adopted by field**: Fat window −190 to −30 HU; VOI = outer vessel wall + 1× diameter; proximal 40 mm (LAD/LCX), 10–50 mm (RCA)
-- **Reproducibility**: ICC 0.987 intra-, 0.980 interobserver
-- **Impact**: This paper defined the entire FAI measurement methodology used by essentially all subsequent studies
+**Key technical specifications validated in this paper (and adopted by our pipeline):**
 
-### 1.3 Oikonomou et al. 2023 — ORFAN Trial / CaRi-Heart
+| Parameter | Value | Notes |
+|---|---|---|
+| HU range for fat | **−190 to −30 HU** | Adipose tissue window |
+| Radial distance | **1× vessel diameter** from outer wall | = mean_radius from centerline outer boundary |
+| LAD/LCX segment | **Proximal 40 mm** | From ostium |
+| RCA segment | **10–50 mm** (proximal 40 mm, skip first 10 mm) | Avoids aortic wall pulsation artifact |
+| Reproducibility | ICC = **0.987** (intraobserver), **0.980** (interobserver) | Excellent |
+| Clinical cut-off | **FAI ≤ −70.1 HU** = low-risk; **FAI > −70.1 HU** = high cardiac mortality risk | Validated in CRISP-CT trial |
 
-> Oikonomou EK et al. *Nature Cardiovascular Research*. 2023.
+The FAI cut-off of **−70.1 HU** was validated in the CRISP-CT prospective study (n=1,872) as independently predicting cardiac death (HR 9.04, 95% CI 2.12–38.6, p=0.003).
 
-- **Study**: n=3,324 prospective CCTA cohort
-- **Key findings**: CaRi-Heart AI score (integrating FAI + shape features + calcification) outperformed ASCVD PCE, Synoptic Risk Score, and CACS alone
-- **Clinical impact**: Demonstrated AI-enhanced FAI as the strongest non-invasive predictor of MACE in intermediate-risk patients
-- **Commercial deployment**: CaRi-Heart by Caristo Diagnostics (Oxford, UK), FDA-cleared
+### Commercialisation
 
----
-
-## 2. Anti-Inflammatory Trials (Clinical Motivation)
-
-### 2.1 CANTOS — Ridker et al. 2017
-
-> Ridker PM et al. *NEJM* 2017;377:1119–1131. n=10,061.
-
-- Canakinumab (IL-1β antibody) reduced MACE by 15% independent of LDL cholesterol
-- First proof of causality for inflammation in cardiovascular events
-- Mechanistic pathway: IL-1β → IL-6 → CRP → plaque destabilisation
-
-### 2.2 COLCOT — Tardif et al. 2019
-
-> Tardif JC et al. *NEJM* 2019. n=4,745 post-MI patients.
-
-- Low-dose colchicine (0.5 mg/day) reduced MACE by 23%
-- Same NLRP3/IL-1β pathway as canakinumab, but cheaper and safer
-- Colchicine now guideline-recommended for secondary prevention
-
-### 2.3 LoDoCo2 — Nidorf et al. 2020
-
-> Nidorf SM et al. *NEJM* 2020. n=5,522 chronic CAD.
-
-- Colchicine reduced MACE by 31% in stable CAD
-- Confirmed anti-inflammatory benefit extends beyond acute MI setting
-- Together with COLCOT, establishes the treatment pathway that FAI-guided risk stratification enables
+The Oxford methodology has been commercialised by **Caristo Diagnostics** (Oxford, UK). Their FDA-cleared tool (CaRi-Heart) implements the exact methods above.
 
 ---
 
-## 3. FAI Technical Confounders
+## 2. Commercial Software: ShuKun Technology
 
-### 3.1 Tube Voltage Effects
+### Product
 
-#### Ma et al. 2020 — PCAT Reference Values
+**"Peri-coronary Adipose Tissue Analysis Tool"** — ShuKun Technology Co., Ltd., Beijing, China.  
+Companion product: **CoronaryDoc®-FFR** (CT-based fractional flow reserve).
 
-> Ma R, Vliegenthart R, et al. Groningen. n=493 consecutive CCTA.
+### Published Evidence
 
-- Established reference values: LAD −92.4 HU, LCX −88.4 HU, RCA −90.2 HU
-- **FAI increases linearly with tube voltage** — less negative at higher kV
-- Provided first population-based reference ranges stratified by vessel and protocol
-- **Relevance to our study**: Demonstrates that absolute HU values are protocol-dependent
+Two key studies with explicit ShuKun attribution:
+- Huang et al. (2025), PMID 41163958 — *Lesion-specific PCAT radiomics for MACE prediction*
+- PMID 39696214 — *PCAT radiomics in stable CAD*
 
-#### Etter et al. 2022 — Phantom kVp Study
+### Technical Methods (inferred from papers)
 
-> Etter M et al. 2022.
+#### PCAT Definition
+- HU range: −190 to −30 (consistent with Oxford standard)
+- Radial distance: outer vessel wall + 1 vessel diameter
+- **Lesion-specific approach**: PCAT measured around individual stenotic plaques (identified by CT-FFR < 0.8), not just fixed proximal segments
 
-- Physical CT phantom study quantifying tube voltage effects on PCAT mean attenuation (PCATMA)
-- **Conversion factors relative to 120 kVp**: 1.267 (80 kVp), 1.08 (100 kVp), 0.947 (140 kVp)
-- Demonstrates that the same physical fat material gives different HU at different kV settings
-- **Relevance**: Directly validates our claim that FAI is protocol-dependent
+#### Radiomic Feature Extraction
+The tool extracts **93 radiomic features** per VOI segmentation:
 
-### 3.2 Reconstruction Algorithm Effects
+| Feature Class | Examples |
+|---|---|
+| First-order statistics | Mean, minimum, maximum, total energy, percentiles |
+| GLCM | Contrast, correlation, entropy, homogeneity |
+| GLSZM | Small zone emphasis, large zone high grey level |
+| GLRLM | Run length non-uniformity, long run emphasis |
+| NGTDM | Coarseness, complexity, busyness |
+| GLDM | Dependence variance, dependence entropy |
 
-#### Lisi et al. 2025 — Kernel and Iterative Reconstruction
+#### Downstream ML Pipeline
+1. Feature selection: Pearson correlation filtering (|r| > 0.95) + Lasso regression
+2. Normalisation: Min-Max scaling
+3. Classification: **XGBoost** with 10-fold cross-validation
+4. Outcome: MACE (Major Adverse Cardiovascular Events) prediction
 
-> Lisi C et al. 2025. n=100.
-
-- Compared FAI across different reconstruction kernels and iterative reconstruction levels
-- Found up to **33 HU intra-individual variation** between reconstructions
-- Same patient can be classified "inflamed" or "non-inflamed" depending on reconstruction choice
-- **Clinical impact**: This is a larger variation than the ~10 HU difference between healthy and inflamed PCAT, making FAI unreliable across reconstruction algorithms
-
-### 3.3 Contrast Perfusion Timing
-
-#### Wu et al. 2025 — Perfusion Confounds
-
-> Wu C, Wilson D, Rajagopalan S, et al. Case Western. n=135 CT perfusion patients.
-
-- **~7 HU swing** in PCAT HU from contrast timing differences alone
-- **~15% change in PCAT volume** between perfusion phases
-- **78% of radiomic features** change >10% between phases
-- **Relevance**: Even within a single scan session, PCAT measurements are confounded by contrast bolus dynamics. Material decomposition separates iodine from tissue composition, eliminating this confound.
-
-### 3.4 Patient Body Habitus
-
-#### Nie & Molloi 2025 — Body Size Effects
-
-> Nie A, Molloi S. *Int J Cardiovasc Imaging* 2025;41:1091–1101.
-
-- **3.6% HU variance** between small, medium, and large patient sizes for identical tissue composition
-- **21.9% HU variance** across 80–135 kV
-- Beam hardening and scatter increase with body size, shifting HU independently of tissue composition
-- **Water fraction (material decomposition) remained consistent** across all sizes and voltages
+#### Centerline Extraction
+ShuKun integrates with CoronaryDoc®-FFR for coronary tree extraction. The exact algorithm is proprietary but, based on the speed of the combined pipeline and the state of the field, almost certainly uses **deep learning** (CNN-based vessel segmentation + automatic ostia detection).
 
 ---
 
-## 4. PCD-CT and Spectral CT Studies
+## 3. Commercial Software: Siemens syngo.via
 
-### 4.1 Zurich NAEOTOM Alpha Studies (Alkadhi, Eberhard, Mergen)
+### Two Generations Compared
 
-Multiple studies from the Zurich group (2022–2025) systematically evaluated PCAT measurement on the Siemens NAEOTOM Alpha photon-counting detector CT:
+> Weichsel J, et al. "CT-based coronary plaque analysis — comparison of two different software tools." *European Radiology*. 2024. PMID: 38248031
 
-- PCD-CT produces systematically different HU values than conventional CT for the same tissue
-- VMI at 70 keV approximates conventional 120 kVp but is not identical
-- Kernel selection on PCD-CT significantly affects FAI
-- Ultra-high resolution mode (0.2 mm pixels) improves spatial resolution but affects noise characteristics
-- **Conclusion**: FAI thresholds from conventional CT cannot be directly applied to PCD-CT without recalibration
+#### Tool #1 — syngo.via Frontier CT Coronary Plaque Analysis (v5.0.2)
+- Semi-automated: automatic heart isolation + centerline detection, but requires **manual** correction
+- Manual selection of vessel section of interest
+- Auto-suggested inner/outer wall contours, then manual refinement
+- Processing time: **~459 seconds/case**
+- Inter-observer variability: **22.8%**
 
-### 4.2 Engel et al. 2026 — FAI on PCD-CT with Plaque Correlation
+#### Tool #2 — Successor CT Coronary Plaque Analysis (prototype/next-gen)
+- **Fully automated deep learning** for centerline extraction and lumen/vessel wall contouring
+- No manual interaction required (correction possible but optional)
+- Processing time: **~208 seconds/case** (55% faster than Tool #1)
+- Inter-observer variability: **2.3%** (10× more reproducible)
 
-> Engel et al. *J Clin Med* 2026.
+#### Plaque HU Thresholds (for reference)
+| Plaque Type | HU Range |
+|---|---|
+| Calcified | > 350 HU |
+| Fibrous | 30–350 HU |
+| Lipid / PCAT | < 30 HU |
+| PCAT fat range | −190 to −30 HU |
 
-- First study applying the −70.1 HU FAI threshold on PCD-CT
-- FAI ≥ −70.1 HU associated with more lipid-rich, non-calcified plaques (vulnerable morphology)
-- Confirms FAI signal is biologically meaningful on PCD-CT, but absolute calibration differs from conventional CT
-
-### 4.3 Mannheim PCD-CT Radiomics (Ayx, Froelich, Nörenberg)
-
-> Ayx I et al. 2022–2024. Multiple studies.
-
-- PCD-CT radiomic texture analysis of pericoronary fat
-- Spectral imaging enables richer feature extraction (energy-bin-specific textures)
-- But also introduces additional variability from energy selection
-- **Relevance**: Highlights that more sophisticated measurements amplify the protocol-dependence problem — further motivation for composition-based (material decomposition) approaches
-
----
-
-## 5. Material Decomposition and Compositional Analysis
-
-### 5.1 Ding & Molloi 2021 — DECT Plaque Material Decomposition
-
-> Ding Y, Molloi S. "Characterization of arterial plaque composition with dual-energy computed tomography." 2021.
-
-- Three-material decomposition (water, lipid, calcium) for coronary artery plaques using DECT
-- Validated against known phantom compositions
-- Established the lab's methodology for CT material decomposition in coronary structures
-- **Direct predecessor** to the PVAT material decomposition work
-
-### 5.2 Nie & Molloi 2025 — PVAT Water-Lipid-Protein Decomposition
-
-> Nie A, Molloi S. *Int J Cardiovasc Imaging* 2025;41:1091–1101.
-
-- Computational simulation of Canon Aquilion One 320-slice scanner
-- 10 water-lipid-protein inserts in anthropomorphic thorax phantom (QRM)
-- Three-material decomposition: water, lipid, protein (protein fixed at 2.17%)
-- **Results**: Water fraction RMSE 0.01–0.64%; RMSD 2.94–6.05%
-- **Key demonstration**: Water fraction is protocol-independent (consistent across 80–135 kV and all patient sizes); HU is not (21.9% kV variance, 3.6% size variance)
-- Healthy PVAT water fraction 20–30%; diseased 25–35% (~5% difference detectable)
-- **Limitations**: FBP only, no bowtie filter, no motion artifacts, cylindrical phantom (not anatomically realistic)
-
-### 5.3 Mendonça & Lamb 2014 — Multi-Material DECT Framework
-
-> Mendonça PRS, Lamb P. "A flexible method for multi-material decomposition of dual-energy CT images." *TMI* 2014.
-
-- Mathematical framework for decomposing DECT data into 3+ materials
-- Volume conservation constraint: material fractions sum to 1
-- Known material attenuation coefficients (mass attenuation × density) at each energy
-- Solve constrained optimization for material fractions per voxel
-- **Foundation paper** for multi-material decomposition methodology
-
-### 5.4 Xue et al. 2021 — Single-Energy CT Multi-Material Decomposition
-
-> Xue Y et al. "Multi-material decomposition for single-energy CT using material sparsity constraint." 2021.
-
-- Extended material decomposition to **single-energy CT** — does not require DECT or spectral data
-- Exploits material sparsity assumption: most voxels contain ≤ 2–3 dominant materials
-- Iterative optimization with L1 regularization on material fractions
-- **Relevance**: Enables material decomposition on conventional single-energy CCTA scans (the vast majority of clinical installations), not just spectral CT
-
-### 5.5 Valand et al. 2026 — Physics-Informed Material Composition (Spectral CT)
-
-> Valand S et al. "Truth-based physics-informed material composition estimation in spectral CT." 2026.
-
-- Deep learning approach to material composition estimation
-- Uses known phantom compositions as "truth" training targets
-- Physics-informed architecture enforces mass attenuation physics in the network
-- Achieves higher accuracy than conventional analytical decomposition
-- **Relevance**: Represents the next generation of material decomposition methods; applicable to our spectral CT work
+#### Key Insight
+The move from Tool #1 → Tool #2 demonstrates the quantified benefit of deep learning for centerline extraction: **55% faster, 10× more reproducible**. The deep learning architecture is proprietary (encoder-decoder type inferred from published patents).
 
 ---
 
-## 6. XCAT Phantom and Virtual Imaging Trials
+## 4. State-of-the-Art Centerline Extraction Algorithms
 
-### 6.1 XCAT 3.0 — Dahal et al. 2025
+### 4.1 Rotterdam Benchmark Framework
 
-> Dahal S, Segars WP, et al. Duke University. 2025.
+> Schaap M, Metz CT, van Walsum T, et al. "Standardized evaluation methodology and reference database for evaluating coronary artery centerline extraction algorithms." *Medical Image Analysis*. 2009;13(5):701-714.
 
-- **2,500+ unique phantoms** representing population demographics (age, sex, BMI, organ sizes)
-- Automated anatomical segmentation framework
-- Realistic cardiac anatomy: coronary arteries, epicardial fat, pericardium, myocardium
-- Parameterised organs with physiological motion models (cardiac cycle, respiration)
-- Gold standard for CT simulation and virtual imaging trials
-- **Why critical for our study**: Provides anatomically realistic coronary geometry and pericoronary fat distribution that simple cylindrical phantoms cannot
+The **Rotterdam Coronary Artery Algorithm Evaluation Framework** established standardised metrics and benchmarked 13 algorithms on 32 cardiac CTA datasets. It is the canonical comparison framework for coronary centerline methods.
 
-### 6.2 Sauer et al. 2024 — Computational Coronary Plaques (DC-GAN)
+**Evaluation metrics:**
+- **OV** (Overlap): fraction of centerline within 1 voxel of ground truth
+- **OF** (Overlap at Forking points): OV at bifurcations
+- **OT** (Overlap at Tips): OV at vessel tips
+- **AI** (Average Interslice distance): positional accuracy in mm
 
-> Sauer TJ, Samei E, et al. Duke CVIT. 2024.
-
-- Generated realistic virtual coronary artery plaques using Deep Convolutional Generative Adversarial Networks (DC-GAN)
-- Plaques inserted into XCAT phantoms for virtual imaging trials
-- Demonstrated feasibility of simulating coronary pathology in computational phantoms
-- **Validates our approach**: If plaques can be computationally inserted, so can inflamed PCAT
-
-### 6.3 Salinas et al. 2025 — Body Composition Transformation
-
-> Salinas ML et al. Duke. 2025.
-
-- Systematic variation of XCAT phantom body composition
-- Demonstrated that tissue composition can be parameterised to represent different clinical scenarios
-- BMI, organ fat content, and subcutaneous fat distribution can be independently varied
-- **Supports our methodology**: Varying PCAT water/lipid content between healthy and diseased states is consistent with established phantom manipulation techniques
-
----
-
-## 7. Meta-Analyses and Systematic Reviews
-
-### 7.1 Sagris et al. 2022 — FAI in Unstable vs Stable Plaques
-
-> Sagris M et al. 2022. 20 studies, n=7,797.
-
-- FAI significantly higher around unstable (vulnerable) plaques vs stable plaques across all 20 studies
-- Confirms FAI signal is robust and reproducible across diverse populations and scanner platforms
-- Effect size consistent across study designs (retrospective, prospective, cross-sectional)
-
-### 7.2 Additional Systematic Reviews
-
-Multiple systematic reviews (2020–2025) have consistently confirmed:
-- FAI adds incremental prognostic value beyond conventional risk factors
-- FAI is reproducible (ICC > 0.95) when protocol is standardised
-- FAI is NOT reproducible across protocols (kernel, kV, scanner platform)
-- This paradox — excellent reproducibility within protocol, poor reproducibility across protocols — is the core motivation for our material decomposition approach
-
----
-
-## 8. PCAT Radiomics Studies
-
-### 8.1 ShuKun Technology — Huang et al. 2025
-
-> Huang et al. PMID 41163958. 2025.
-
-- Lesion-specific PCAT radiomics for MACE prediction
-- 93 radiomic features per VOI (IBSI-compliant)
-- Downstream ML: Pearson filtering → Lasso → XGBoost (10-fold CV)
-- Demonstrated that radiomic features outperform single FAI value for MACE prediction
-- **Commercial product**: ShuKun "Peri-coronary Adipose Tissue Analysis Tool"
-
-### 8.2 Cedars-Sinai / Monash Group
-
-- Multiple studies (2019–2025) on PCAT radiomics and ML models
-- Integration with CT-FFR for functional-anatomical assessment
-- Statin effects on PCAT radiomic features (potential for treatment monitoring)
-
-### 8.3 Radiomic Instability Problem
-
-Per Wu et al. (2025): 78% of radiomic features change >10% between perfusion phases. This means:
-- Radiomic models trained on one protocol may not generalise
-- Feature selection must account for protocol-related variance
-- Material decomposition maps could provide more stable radiomic inputs
-
----
-
-## 9. Coronary Centerline Extraction Algorithms
-
-### 9.1 Rotterdam Benchmark Framework
-
-> Schaap M et al. *Med Image Anal* 2009;13:701–714.
-
-Standardised evaluation metrics: OV (Overlap), OF (Overlap at Forking), OT (Overlap at Tips), AI (Average Interslice distance). Benchmarked 13 algorithms on 32 CTA datasets.
-
-### 9.2 Classical Methods
+### 4.2 Classical Fast Methods
 
 #### Minimal Path / Fast Marching
-- Cohen & Kimmel (1997), Deschamps & Cohen (2001)
-- Globally optimal path via wavefront propagation through cost field
-- O(n log n) with heap; used in our pipeline (scikit-fmm)
+Cohen & Kimmel (1997) + Deschamps & Cohen (2001). Finds globally optimal path between two endpoints by propagating a wavefront through a cost field derived from vesselness. Faster than Dijkstra on dense graphs because it processes each voxel at most once (O(n log n) with heap vs O(n²) naive Dijkstra).
+
+**scikit-fmm** is the Python implementation used in our pipeline upgrade.
 
 #### Optimally Oriented Flux (OOF) Filter
-- Law & Chung, *ECCV* 2008; Jerman et al. 2015
-- Flux through spherical surface (vs Hessian eigenvalues in Frangi)
-- 2–3× faster than Frangi, better boundary detection
-- No maintained Python implementation as of 2026
+> Law MWK, Chung ACS. "Three dimensional curvilinear structure detection using optimally oriented flux." *ECCV*. 2008.
 
-### 9.3 Deep Learning Methods (2024–2025)
+OOF computes flux through a spherical surface rather than Hessian eigenvalues (Frangi). Advantages:
+- **2–3× faster** than Frangi for equivalent accuracy
+- Better vessel boundary detection for varying diameters
+- O(n) per scale vs O(n·σ) for Frangi
+- No Python package with maintained coronary-specific implementation exists as of 2026
 
-| Method | Architecture | OV | Speed |
+> Jerman T, Pernuš F, Likar B. "Beyond Frangi: an improved multiscale vesselness filter." *Medical Imaging 2015*, SPIE Proceedings.
+
+Jerman et al. showed OOF significantly outperforms Frangi in vessel segmentation, with better response uniformity and edge detection.
+
+### 4.3 Deep Learning Methods (2024–2025)
+
+#### Deep Reinforcement Learning (Zhang et al. 2025)
+> PMID 39888471
+
+- Actor-Critic architecture; continuous action space
+- Overcomes artifacts and calcified plaques better than discrete-action methods
+- **OV = 95.7%, OF = 93.6%, OT = 97.3%, AI = 0.22 mm**
+- Speed: seconds per case with GPU
+
+#### Lightweight Dual-CNN (Liu et al. 2025)
+> Proc SPIE 13407
+
+- Two lightweight 3D CNNs in parallel:
+  1. Direction predictor (forward/backward orientation)
+  2. Vessel distance map generator (stopping criterion)
+- Achieves ~95% sensitivity and overlap
+- Speed: **8–15 seconds/case**
+- Requires pre-trained weights (training data: proprietary)
+
+#### BEA-CACE (Branch-Endpoint-Aware, Zhang et al. 2025)
+> PMID 40751109
+
+- Double-DQN (deep Q-network) tracker + 3D dilated CNN detector
+- Simultaneously extracts centerline and estimates vessel radius
+- End-to-end trainable
+
+#### CenterlineNet (Rjiba et al. 2020)
+- Patch-based CNN; detects main + side branches without explicit segmentation
+- Works directly on CTA volumes
+
+### 4.4 Speed Comparison
+
+| Method | Speed | Hardware | Accuracy |
 |---|---|---|---|
-| Zhang et al. (PMID 39888471) | Actor-Critic (continuous RL) | 95.7% | Seconds (GPU) |
-| Liu et al. (SPIE 13407) | Dual lightweight 3D CNN | ~95% | 8–15s |
-| BEA-CACE (PMID 40751109) | Double-DQN + 3D dilated CNN | — | — |
-| CenterlineNet (Rjiba 2020) | Patch-based CNN | — | — |
-
-### 9.4 Speed Comparison
-
-| Method | Speed | Hardware |
-|---|---|---|
-| Frangi + Fast Marching (ROI-cropped) | ~10–30s | CPU M3 |
-| OOF + Fast Marching | ~3–8s | CPU |
-| Lightweight CNN | 8–15s | GPU |
-| Deep RL | Seconds | GPU |
-| Siemens syngo.via Tool #2 | ~208s/case | Clinical |
+| ~~Frangi + Dijkstra (full volume)~~ | ~~10+ min~~ | CPU | — (replaced) |
+| ~~Frangi + Dijkstra (ROI-cropped)~~ | ~~10–30s~~ | CPU M3 | — (replaced) |
+| **Frangi + Fast Marching (current pipeline, ROI-cropped)** | **~10–30s** | **CPU M3** | **High** |
+| OOF + Fast Marching | ~3–8s | CPU | High |
+| Lightweight CNN (Liu 2025) | 8–15s | GPU | ~95% |
+| Deep RL (Zhang 2025) | seconds | GPU | 95.7% OV |
+| Siemens syngo.via Tool #2 | ~208s/case | Clinical workstation | Low variability |
 
 ---
 
-## 10. Commercial PCAT Software
+## 5. Implications for Our Pipeline
 
-### 10.1 CaRi-Heart (Caristo Diagnostics)
+### What We Match ✅
+- HU range: −190 to −30 HU (Oxford/Caristo standard)
+- Radial distance: 1× vessel diameter from outer wall
+- Proximal segments: 40 mm LAD/LCX, 10–50 mm RCA
+- Clinical cut-off: −70.1 HU reported per vessel
 
-- Oxford methodology commercialised; FDA-cleared
-- Implements CRISP-CT specifications exactly
-- AI-enhanced: integrates FAI + shape features + calcification into composite risk score
-- Deployed in clinical sites (UK NHS, select international)
-
-### 10.2 ShuKun Technology
-
-- Beijing-based; companion to CoronaryDoc®-FFR
-- Lesion-specific PCAT (around individual stenoses, not just proximal segments)
-- 93-feature radiomic extraction + XGBoost ML pipeline
-- Proprietary coronary tree extraction (likely DL-based)
-
-### 10.3 Siemens syngo.via
-
-> Weichsel J et al. *Eur Radiol* 2024. PMID: 38248031
-
-Two generations compared:
-
-| Feature | Tool #1 (v5.0.2) | Tool #2 (DL successor) |
-|---|---|---|
-| Automation | Semi-automated (manual correction) | Fully automated DL |
-| Processing time | ~459 s/case | ~208 s/case (55% faster) |
-| Inter-observer variability | 22.8% | 2.3% (10× more reproducible) |
-
-Key insight: DL-based centerline extraction reduces variability 10× and time 55%.
+### Where We Differ from Commercial Tools
+| Gap | Commercial Solution | Our Current Approach | Upgrade Path |
+|---|---|---|---|
+| Seed picking | Automatic (DL ostia detection) | TotalSegmentator (auto) + optional manual review | CNN landmark detection (future) |
+| Centerline algo | Fast Marching or DL | ✅ **Fast Marching** (scikit-fmm, ROI-cropped ~10–30 s) | Deep RL / CNN (future) |
+| Vessel enhancement | OOF or DL | Frangi (ROI-cropped) | OOF (needs C++ binding) |
+| Radiomic features | 93 features (XGBoost) | Mean HU, std, percentiles | pyradiomics integration (future) |
+| Processing speed | ~208s/case (Siemens) | ~30–60s/case | Within range of commercial tools |
+### Recommended Future Upgrades (Priority Order)
+1. **Add pyradiomics** for 93-feature radiomic extraction per VOI
+2. **Automatic ostia detection** — CNN landmark or atlas-based (3D Slicer VMTK)
+3. **OOF filter** — implement via `morphsnakes` approximation or C++ binding
+4. **Deep learning centerline** — replace Frangi+FMM with trained vessel tracker for calcified/artifact cases
 
 ---
 
-## 11. Summary: Papers by Topic
+## 6. Key References
 
-### FAI Definition and Validation
-
-| Paper | Year | n | Key Contribution |
-|---|---|---|---|
-| Antonopoulos et al. *Sci Transl Med* | 2017 | 453 | Histological validation of FAI |
-| Oikonomou et al. *Lancet* (CRISP-CT) | 2018 | 1,872 | FAI prognostic validation, −70.1 HU cutoff |
-| Oikonomou et al. *Nat CV Res* (ORFAN) | 2023 | 3,324 | CaRi-Heart AI score |
-| Engel et al. *J Clin Med* | 2026 | — | FAI on PCD-CT |
-
-### Anti-Inflammatory Trials
-
-| Paper | Year | n | Key Contribution |
-|---|---|---|---|
-| Ridker et al. *NEJM* (CANTOS) | 2017 | 10,061 | IL-1β causal role in MACE |
-| Tardif et al. *NEJM* (COLCOT) | 2019 | 4,745 | Colchicine −23% MACE post-MI |
-| Nidorf et al. *NEJM* (LoDoCo2) | 2020 | 5,522 | Colchicine −31% MACE in chronic CAD |
-
-### FAI Technical Confounders
-
-| Paper | Year | Key Finding |
-|---|---|---|
-| Ma et al. (Groningen) | 2020 | Reference values, kV-dependent FAI |
-| Etter et al. | 2022 | kVp conversion factors for PCATMA |
-| Lisi et al. | 2025 | 33 HU variation across kernels |
-| Wu et al. (Case Western) | 2025 | 7 HU perfusion timing swing, 78% radiomic instability |
-| Nie & Molloi (*IJCI*) | 2025 | 21.9% kV variance, 3.6% body size variance |
-
-### Material Decomposition
-
-| Paper | Year | Key Contribution |
-|---|---|---|
-| Mendonça & Lamb | 2014 | Multi-material DECT decomposition framework |
-| Xue et al. | 2021 | Single-energy CT multi-material decomposition |
-| Ding & Molloi | 2021 | DECT coronary plaque decomposition |
-| Nie & Molloi (*IJCI*) | 2025 | PVAT water-lipid-protein decomposition |
-| Valand et al. | 2026 | Physics-informed DL material composition |
-
-### XCAT and Virtual Imaging
-
-| Paper | Year | Key Contribution |
-|---|---|---|
-| Dahal et al. (Duke) | 2025 | XCAT 3.0 with 2,500+ phantoms |
-| Sauer et al. (Duke CVIT) | 2024 | DC-GAN computational coronary plaques |
-| Salinas et al. (Duke) | 2025 | Body composition transformation in XCAT |
-
-### Spectral CT and PCD-CT
-
-| Paper | Year | Key Contribution |
-|---|---|---|
-| Zurich group (multiple) | 2022–2025 | NAEOTOM Alpha PCAT evaluation |
-| Mannheim group (multiple) | 2022–2024 | PCD-CT radiomic texture analysis |
-| Engel et al. | 2026 | FAI threshold on PCD-CT |
-
-### PCAT Radiomics and ML
-
-| Paper | Year | Key Contribution |
-|---|---|---|
-| Huang et al. (ShuKun) PMID 41163958 | 2025 | 93-feature PCAT radiomics for MACE |
-| Cedars-Sinai / Monash (multiple) | 2019–2025 | PCAT ML models, statin effects |
-| Sagris et al. (meta-analysis) | 2022 | FAI in unstable vs stable plaques, n=7,797 |
-
-### Vasospastic Angina and PVAT
-
-| Paper | Year | Key Contribution |
-|---|---|---|
-| Ohyama et al. (Tohoku/Sendai) | 2016–2017 | PVAT inflammation in vasospastic angina (18F-FDG PET) |
-
-### Coronary Centerline Extraction
-
-| Paper | Year | Key Contribution |
-|---|---|---|
-| Schaap et al. *Med Image Anal* | 2009 | Rotterdam benchmark framework |
-| Law & Chung *ECCV* | 2008 | OOF filter |
-| Zhang et al. PMID 39888471 | 2025 | Deep RL centerline (OV=95.7%) |
-| Liu et al. SPIE 13407 | 2025 | Lightweight dual-CNN (8–15s) |
-| Zhang et al. PMID 40751109 | 2025 | BEA-CACE double-DQN |
-
-### Commercial Tools
-
-| Paper | Year | Key Contribution |
-|---|---|---|
-| Weichsel et al. *Eur Radiol* PMID 38248031 | 2024 | Siemens syngo.via DL comparison (10× less variability) |
-| CaRi-Heart (Caristo) | 2023 | FDA-cleared AI-enhanced FAI |
-| ShuKun PCAT Tool | 2025 | Lesion-specific radiomics + CT-FFR |
+1. Oikonomou EK et al. *Lancet* 2018. PMID: 30170852 — FAI methodology, −70.1 HU cut-off
+2. Huang et al. *[Journal]* 2025. PMID: 41163958 — ShuKun PCAT radiomics for MACE
+3. Weichsel J et al. *Eur Radiol* 2024. PMID: 38248031 — Siemens syngo.via comparison
+4. Schaap M et al. *Med Image Anal* 2009;13:701-714 — Rotterdam benchmark framework
+5. Law MWK, Chung ACS. *ECCV* 2008 — OOF filter
+6. Jerman T et al. *SPIE Med Imaging* 2015 — OOF vs Frangi comparison
+7. Zhang et al. *[Journal]* 2025. PMID: 39888471 — Deep RL centerline (Actor-Critic)
+8. Liu CC et al. *Proc SPIE* 13407. 2025 — Lightweight CNN centerline (8–15s)
+9. Zhang et al. *[Journal]* 2025. PMID: 40751109 — BEA-CACE double-DQN
 
 ---
 
-## 12. Key References (Numbered)
+## 7. PCAT as a Cardiovascular Biomarker: Study Context
 
-1. Antonopoulos AS et al. *Sci Transl Med* 2017;9:eaal2658 — FAI histological validation
-2. Oikonomou EK et al. *Lancet* 2018;392:929–939 — CRISP-CT, FAI definition, −70.1 HU
-3. Oikonomou EK et al. *Nat CV Res* 2023 — CaRi-Heart AI score, ORFAN trial
-4. Ridker PM et al. *NEJM* 2017;377:1119–1131 — CANTOS (IL-1β → MACE)
-5. Tardif JC et al. *NEJM* 2019 — COLCOT (colchicine post-MI)
-6. Nidorf SM et al. *NEJM* 2020 — LoDoCo2 (colchicine chronic CAD)
-7. Ma R et al. 2020 — PCAT reference values per vessel per kV
-8. Etter M et al. 2022 — Phantom kVp conversion factors
-9. Lisi C et al. 2025 — Kernel reconstruction effects on FAI (33 HU variation)
-10. Wu C et al. 2025 — Perfusion timing confounds (7 HU swing, 78% radiomic instability)
-11. Sagris M et al. 2022 — Meta-analysis: FAI unstable vs stable plaques, n=7,797
-12. Nie A, Molloi S. *Int J Cardiovasc Imaging* 2025;41:1091–1101 — PVAT water-lipid-protein decomposition
-13. Ding Y, Molloi S. 2021 — DECT coronary plaque material decomposition
-14. Mendonça PRS, Lamb P. 2014 — Multi-material DECT decomposition framework
-15. Xue Y et al. 2021 — Single-energy CT multi-material decomposition
-16. Valand S et al. 2026 — Physics-informed material composition in spectral CT
-17. Dahal S, Segars WP et al. 2025 — XCAT 3.0 (2,500+ phantoms)
-18. Sauer TJ, Samei E et al. 2024 — Computational coronary plaques (DC-GAN)
-19. Salinas ML et al. 2025 — Body composition transformation in XCAT
-20. Huang et al. PMID 41163958. 2025 — ShuKun 93-feature PCAT radiomics
-21. Weichsel J et al. *Eur Radiol* 2024. PMID 38248031 — Siemens syngo.via comparison
-22. Schaap M et al. *Med Image Anal* 2009;13:701–714 — Rotterdam centerline benchmark
-23. Law MWK, Chung ACS. *ECCV* 2008 — OOF filter
-24. Zhang et al. PMID 39888471. 2025 — Deep RL centerline extraction
-25. Liu CC et al. SPIE 13407. 2025 — Lightweight CNN centerline
-26. Engel et al. *J Clin Med* 2026 — FAI on PCD-CT
-27. Ohyama K et al. 2016–2017 — PVAT inflammation in vasospastic angina
-28. Ross R. *NEJM* 1999;340:115–126 — Atherosclerosis as inflammatory disease
-29. Libby P et al. *Circulation* 2021 — Inflammasome pathway
+### 7.1 Epidemiological Evidence
+
+Pericoronary adipose tissue volume and attenuation are independently associated with coronary artery disease severity. Multiple large cohort studies establish the clinical context:
+
+**CRISP-CT (Oikonomou et al. 2018, *Lancet*, PMID 30170852)**  
+The foundational prospective study. In 1,872 patients undergoing CCTA for suspected CAD, FAI around the right coronary artery (RCA-FAI) independently predicted cardiac death over 5 years (HR 9.04, 95% CI 2.12–38.6). This established FAI as the first non-invasive imaging biomarker of coronary inflammation detectable before atherosclerotic plaque formation.
+
+**CRISP-CT mechanistic validation:**  
+The biological mechanism was confirmed in matched histological specimens: perivascular fat biopsied adjacent to inflamed coronary segments showed significantly reduced lipid droplet size, reduced expression of adipogenic transcription factors (PPARgamma, FABP4), and increased expression of inflammatory cytokines (IL-6, TNF-alpha) — directly corresponding to the HU elevation measured on CT.
+
+**ORFAN Trial (Oikonomou et al. 2023, *Nature Cardiovascular Research*)**  
+The first prospective trial to test AI-enhanced PCAT analysis (CaRi-Heart score, Caristo Diagnostics). The trial demonstrated that coronary inflammation detected by FAI was a stronger predictor of MACE than conventional risk scores (ASCVD PCE score, SRS). The AI score added incremental predictive value beyond calcium scoring.
+
+### 7.2 Material Decomposition and Spectral CT for PCAT
+
+Standard single-energy CT measures a single integrated HU value that conflates contributions from water, lipid, protein, and calcium. **Spectral CT** (dual-energy or photon-counting detector CT) enables material decomposition to separate these components, potentially providing more specific markers of inflammation:
+
+**Water-lipid decomposition:**  
+Fat tissue is predominantly triglycerides (~86% lipid by weight). Inflamed PCAT shifts from lipid-dominant to more aqueous composition. On spectral CT, the **lipid map** (lipid density image) would directly quantify this shift — a fundamentally more specific measurement than the integrated FAI HU.
+
+**Photon-counting detector CT (PCD-CT):**  
+Next-generation scanners (Siemens NAEOTOM Alpha, GE HealthCare Revolution CT) provide simultaneous multi-energy data at full resolution. PCD-CT generates:
+- Virtual monoenergetic images (VMI) at any keV
+- Material decomposition maps (water, iodine, lipid, calcium)
+- Effective atomic number (Z-eff) maps
+
+For PCAT: VMI at 70 keV matches conventional CT noise/contrast characteristics while material maps add specificity. Our pipeline's current data (Siemens syngo.via, 'mono 70 keV' series label) is consistent with virtual monoenergetic reconstruction from a dual-energy or spectral acquisition.
+
+**Key implication for our pipeline:**  
+The -190 to -30 HU fat window is defined for conventional 120 kVp polychromatic CT. On VMI, the same tissue will appear slightly different due to the energy-dependent HU. The threshold needs validation at 70 keV VMI (expected shift: approximately +5 to +15 HU relative to 120 kVp).
+
+### 7.3 PCAT Volume vs. Attenuation
+
+Two separate PCAT phenotypes are measured:
+
+| Measure | Biological Meaning | Clinical Association |
+|---|---|---|
+| **PCAT attenuation (FAI, HU)** | Inflammatory phenotypic shift in adipocytes | Acute inflammation, plaque vulnerability, future MACE |
+| **PCAT volume (cm3)** | Total adipose depot size | Obesity, metabolic syndrome, chronic risk |
+
+These are partially independent: a patient can have high PCAT volume (large depot, obese) but low FAI (non-inflamed), or low volume but high FAI (lean but actively inflamed). Both should ideally be measured. Our pipeline currently computes **attenuation (FAI)** per vessel; volume is derivable from the same VOI mask (voxel count x voxel volume in cm3) and is already present in `compute_pcat_stats` output.
+
+---
+
+## 8. Coronary Artery Inflammation: Field Context
+
+### 8.1 The Vascular Inflammation Hypothesis
+
+The paradigm shift in cardiovascular medicine is the recognition that **atherosclerosis is fundamentally an inflammatory disease**, not merely a lipid storage disorder:
+
+- **Ross R. *NEJM* 1999**: Established the 'response-to-injury' hypothesis — endothelial activation by LDL, oxidative stress, and shear forces initiates an inflammatory cascade
+- **Ridker PM et al. *NEJM* 2017 (CANTOS trial)**: Showed anti-inflammatory therapy (canakinumab, IL-1beta antibody) reduced MACE by 15% independent of LDL, proving the causal role of inflammation
+- **Libby et al. *Nature* 2021**: Comprehensive review establishing the 'inflammasome' pathway (NLRP3) as the central mediator of plaque vulnerability
+
+### 8.2 Perivascular Adipose Tissue as Paracrine Signalling Hub
+
+**Vasocrine signalling (arterial wall -> fat):**
+- Coronary arterial smooth muscle and adventitia release pro-inflammatory mediators (IL-6, TNF-alpha, CXCL10) during atherosclerotic activity
+- These diffuse outward into perivascular fat and suppress adipocyte differentiation (inhibit PPARgamma, C/EBPalpha)
+- Result: adipocytes become smaller, less lipid-filled -> HU increases toward less-negative values
+
+**Paracrine signalling (fat -> vessel wall):**
+- In obese/metabolic syndrome states, PVAT shifts from secreting vasodilatory (adiponectin, NO) to pro-inflammatory (IL-6, TNF-alpha, FABP4) mediators
+- This creates a bidirectional amplification loop that accelerates plaque development
+
+### 8.3 PCAT vs. Epicardial Adipose Tissue
+
+| Feature | Pericoronary AT (PCAT) | Epicardial AT (EAT) |
+|---|---|---|
+| Location | Immediately adjacent to vessel wall | Entire fat depot within pericardium |
+| Measurement | HU attenuation in fixed VOI per vessel | Total volume (cm3) within pericardial sac |
+| Inflammation signal | Direct (per-vessel FAI) | Indirect (whole depot mean HU) |
+| Clinical tool | CaRi-Heart (Caristo), ShuKun | EAT volume tools |
+
+### 8.4 Limitations and Open Questions
+
+1. **Partial volume effects**: Sub-mm coronary vessels are near the spatial resolution limit of CT. Small vessels (LCX, LAD diagonals) have worse SNR.
+2. **Cardiac motion artifact**: Motion-blurred voxels partially outside fat range may bias FAI.
+3. **Threshold generalisability**: The -70.1 HU FAI cut-off was established on conventional 120 kVp CT; validation on spectral VMI data is an active research area.
+4. **LCX underestimation**: The LCX runs adjacent to the left atrial wall; VOI frequently overlaps non-adipose tissue (consistent with our low LCX voxel count of 639 vs. 13,784 for LAD).
+
+---
+
+## 9. Simulation Study Context
+
+### 9.1 Purpose of Our Pipeline
+
+The immediate application context is a **simulation study** characterising PCAT quantification accuracy on CCTA images acquired from a phantom or computational model. The pipeline serves as the measurement tool: given a known ground-truth fat distribution, how accurately does the FAI extraction reproduce the known HU values?
+
+Key validation questions:
+- Does the VOI construction correctly capture the pericoronary fat shell?
+- How does spatial resolution affect FAI accuracy at the coronary scale (vessel diameter ~3 mm)?
+- What is the sensitivity to centerline positioning error (e.g., 1 mm offset)?
+
+### 9.2 Material Decomposition Connection
+
+If the phantom is scanned on a spectral or dual-energy CT, the simulation study could directly test **water-lipid decomposition** as a PCAT measurement method — comparing conventional FAI (integrated HU) to spectral lipid map HU against known ground-truth composition. This would be the first study directly comparing the two methods for PCAT quantification.
+
+---
+
+## 10. Summary Table: Key Papers by Topic
+
+| Topic | Paper | Year | Key Contribution |
+|---|---|---|---|
+| FAI foundational | Oikonomou et al., *Lancet* | 2018 | FAI definition, -70.1 HU cut-off, CRISP-CT validation |
+| FAI AI score | Oikonomou et al., *Nat CV Res* | 2023 | CaRi-Heart AI score, ORFAN trial |
+| PCAT radiomics | Huang et al., PMID 41163958 | 2025 | 93-feature radiomic MACE prediction (ShuKun) |
+| Siemens syngo.via | Weichsel et al., *Eur Radiol* | 2024 | Tool comparison: DL reduces variability 10x |
+| Inflammation trial | Ridker et al., *NEJM* (CANTOS) | 2017 | Causal role of IL-1beta in MACE |
+| Coronary centerline | Schaap et al., *Med Image Anal* | 2009 | Rotterdam benchmark framework |
+| DL centerline | Zhang et al., PMID 39888471 | 2025 | Deep RL: OV=95.7%, speed=seconds |
+| Spectral CT review | Eveson et al., *Br J Radiol* | 2026 | AI integration + quantitative PCAT review |
+| PCD-CT plaque | Engel et al., *J Clin Med* | 2026 | FAI >= -70.1 HU and plaque composition |
