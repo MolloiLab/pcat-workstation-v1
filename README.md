@@ -92,22 +92,19 @@ Generates a static overlay image showing extracted centerlines on top of the CT 
 ### Stage 6 — Contour Editor
 
 Opens a clinical GUI for reviewing and correcting the auto-extracted vessel wall contours before PCAT computation.
+**Draw a freehand lasso around the region you want to fill or erase, then release.**
 
 **Vessel colors:** LAD = red-orange · LCX = blue · RCA = green
-
 | Key / Action | Effect |
 |---|---|
-| `M` | **Toggle edit mode** (Scissors ↔ Refine) |
+| Left-drag / Right-drag | **Draw freehand lasso** to fill/erase contour region |
 | `A` | **Auto-snap boundary** (re-detect via gradient analysis) |
+| `E` | Toggle fill/erase mode |
 | `1` / `2` / `3` | Switch active vessel |
 | `←` / `→` | Navigate ±1 cross-section position |
 | `↑` / `↓` | Navigate ±5 positions |
-| Left-drag (Scissors) | Draw freehand lasso to fill/erase region |
-| Left-drag (Refine) | Smooth contour deformation with Gaussian falloff |
-| Right-drag | Scissors/lasso tool (backward compat) |
-| `E` | Toggle scissors mode (fill ↔ erase) |
-| `I` | Fill between slices (interpolate modified positions) |
 | `R` | Reset current contour to auto-detected |
+| `I` | Fill between slices (interpolate modified positions) |
 | `Space` | Toggle contour visibility |
 | `V` | Toggle VOI ring visibility |
 | Scroll wheel | Zoom cross-section view |
@@ -116,7 +113,6 @@ Opens a clinical GUI for reviewing and correcting the auto-extracted vessel wall
 - **Left panel:** CPR cross-section with vessel wall contour
 - **Right panel:** Vessel overview — r_eq profile along arc-length with modification markers
 - **Separate window:** 3D pyvista visualization with colored vessel meshes and semi-transparent fat volume
-- **Two editing modes:** Scissors (default) for bulk fill/erase with freehand lasso; Refine for smooth point-by-point contour adjustment
 - **Auto-snap:** Press `A` to re-detect the vessel boundary using gradient analysis from the CT image — eliminates star-shaped artifacts
 
 ### Stage 7 — VOI construction & FAI computation (~3 s)

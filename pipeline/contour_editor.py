@@ -2,12 +2,11 @@
 """
 contour_editor.py — Interactive vessel contour editor for correcting contours
 before PCAT VOI computation.
+Draw a freehand lasso around the region you want to fill or erase, then release.
 Features:
   - Clean clinical interface (no dark theme, no neon colors)
   - CPR cross-section viewer with polar contour overlay
-  - Two editing modes: Scissors (default) and Refine, toggled by M key
-  - Scissors mode: freehand lasso for bulk fill/erase
-  - Refine mode: smooth contour deformation with wide Gaussian falloff
+  - Scissors editing: left-click drag freehand lasso to fill/erase contour regions
   - Auto-snap (A key): re-detects vessel boundary using gradient analysis
   - Auto-smoothing after every manual edit using Gaussian wrap-around
   - Fill-between-slices interpolation for efficient editing
@@ -15,24 +14,20 @@ Features:
   - Per-vessel switching (LAD/LCX/RCA)
   - 3D pyvista visualization with vessel meshes and semi-transparent fat
 - Save corrected contours to .npz
-Controls:
-  M            Toggle between Scissors and Refine editing modes
+  Left-drag   Draw freehand lasso to fill/erase contour region
+  Right-drag  Same as left-drag (backward compat)
   A            Auto-snap boundary (re-detect using gradient analysis)
+  E            Toggle fill/erase mode
   Left/Right   Navigate ±1 position
   Up/Down      Navigate ±5 positions
   1/2/3        Switch vessel (LAD/LCX/RCA)
-  Left-drag    Scissors mode: draw lasso | Refine mode: deform contour
-  Right-drag   Scissors/lasso tool (backward compat)
   R            Reset current contour to auto-detected values
-  E            Toggle fill/erase mode for scissors tool
   I            Fill between slices (interpolate)
   S            Save all corrections and close
   Q            Quit without saving
   Space        Toggle contour visibility
   V            Toggle VOI ring visibility
   Scroll       Zoom cross-section view
-
-CLI Usage:
   python contour_editor.py \\
       --dicom path/to/dicom \\
       --contour-data path/to/contour_data.npz \\
@@ -186,7 +181,7 @@ class ContourEditor:
         self.current_vessel = self.vessel_names[0]
         self.current_position = 0
         self.zoom_level = 1.0
-        self.edit_mode = "scissors"  # "scissors" or "refine"
+        self.contour_visible = True
         self.contour_visible = True
         self.voi_visible = True
 
@@ -194,9 +189,6 @@ class ContourEditor:
         self.n_control_points = 8
         self.control_angles = np.linspace(0, 2 * np.pi, self.n_control_points, endpoint=False)
 
-        # Dragging state for control points
-        self.dragging_idx: Optional[int] = None
-        self.dragging_vessel: Optional[str] = None
 
         # Lasso/scissors tool state
         self.lasso_active = False
@@ -282,7 +274,7 @@ class ContourEditor:
         # Title with controls hint
         self.fig.suptitle(
             f"PCAT Contour Editor — {self.prefix}\n"
-            f"Keys: M Mode | A Auto-snap | ←/→ Navigate | 1/2/3 Vessel | R Reset | E Fill/Erase | I Interpolate | S Save | Q Quit",
+            f"Draw lasso to edit | E Fill/Erase | A Auto-snap | ←/→ Navigate | 1/2/3 Vessel | R Reset | I Interpolate | S Save | Q Quit",
             fontsize=10,
         )
 
@@ -482,10 +474,20 @@ class ContourEditor:
         return mesh
 
     def _update_pyvista_meshes(self) -> None:
-        """Update 3D meshes after contour edits."""
+        """Schedule 3D mesh update on the Tk event loop (avoids GIL crash)."""
         if self.plotter is None:
             return
+        try:
+            tk_widget = self.fig.canvas.get_tk_widget()
+            tk_widget.after_idle(self._do_update_pyvista)
+        except Exception:
+            # Fallback: try direct update if Tk widget unavailable
+            self._do_update_pyvista()
 
+    def _do_update_pyvista(self) -> None:
+        """Actually rebuild and render pyvista meshes (called from Tk idle)."""
+        if self.plotter is None:
+            return
         try:
             self._build_vessel_meshes()
             self.plotter.update()
@@ -727,10 +729,7 @@ class ContourEditor:
         r_eq = data["r_eq"][pos]
         fallback = data["fallback_mask"][pos] if data["fallback_mask"] is not None else False
 
-        if self.edit_mode == "scissors":
-            mode_str = f"SCISSORS ({('FILL' if self.fill_mode else 'ERASE')})"
-        else:
-            mode_str = "REFINE"
+        mode_str = "FILL" if self.fill_mode else "ERASE"
 
         modified = self.modified_mask[vessel][pos]
 
@@ -743,6 +742,7 @@ class ContourEditor:
             f"{mode_str}  |  "
             f"{'[MODIFIED]' if modified else ''}"
         )
+
 
         self.ax_status.text(
             0.01, 0.5, msg,
@@ -1000,19 +1000,9 @@ class ContourEditor:
         if event.button != 1:
             return
 
-        if self.edit_mode == "scissors":
-            # Left-click in scissors mode = same as lasso
-            self.lasso_active = True
-            self.lasso_points = [(event.xdata, event.ydata)]
-        elif self.edit_mode == "refine":
-            # Left-click in refine mode = start contour deformation
-            # Find closest angle on contour (NOT limited to 8 control points)
-            angle_mouse = np.arctan2(event.ydata, event.xdata)
-            if angle_mouse < 0:
-                angle_mouse += 2 * np.pi
-            self.dragging_idx = 0  # dummy, we use angle-based dragging
-            self.dragging_vessel = self.current_vessel
-            self._drag_angle = angle_mouse
+        # Left-click: start lasso
+        self.lasso_active = True
+        self.lasso_points = [(event.xdata, event.ydata)]
 
     def _on_mouse_motion(self, event) -> None:
         """Handle mouse motion for dragging or lasso drawing."""
@@ -1039,34 +1029,6 @@ class ContourEditor:
             self.fig.canvas.draw_idle()
             return
 
-        # Refine mode dragging
-        if self.dragging_idx is not None and self.edit_mode == "refine":
-            r_new = np.sqrt(event.xdata ** 2 + event.ydata ** 2)
-            angle_mouse = np.arctan2(event.ydata, event.xdata)
-            if angle_mouse < 0:
-                angle_mouse += 2 * np.pi
-
-            data = self.vessel_data[self.current_vessel]
-            n_angles = data["r_theta"].shape[1]
-            r_theta = data["r_theta"][self.current_position]
-            center_idx = int(angle_mouse / (2 * np.pi) * n_angles) % n_angles
-
-            # WIDER Gaussian for smooth deformation
-            window = 15
-            sigma_sq = 0.3  # wider than old 0.1
-            for offset in range(-window, window + 1):
-                idx = (center_idx + offset) % n_angles
-                angle_idx = idx / n_angles * 2 * np.pi
-                angle_diff = abs(angle_idx - angle_mouse)
-                if angle_diff > np.pi:
-                    angle_diff = 2 * np.pi - angle_diff
-                weight = np.exp(-angle_diff ** 2 / sigma_sq)
-                r_theta[idx] = r_theta[idx] * (1 - weight) + r_new * weight
-
-            r_theta[:] = np.maximum(r_theta, 0.3)
-            self.modified_mask[self.current_vessel][self.current_position] = True
-            self._draw_crosssection()
-            self.fig.canvas.draw_idle()
 
     def _on_mouse_release(self, event) -> None:
         """Handle mouse release to finish dragging or lasso."""
@@ -1088,16 +1050,6 @@ class ContourEditor:
             self._update_pyvista_meshes()
             return
 
-        # Refine mode release
-        if self.dragging_idx is not None:
-            # Auto-smooth after refine drag
-            self._smooth_contour_inplace()
-            self._recalculate_r_eq(self.current_vessel, self.current_position)
-            self._update_display()
-            self._update_pyvista_meshes()
-
-        self.dragging_idx = None
-        self.dragging_vessel = None
 
     def _on_key_press(self, event) -> None:
         """Handle keyboard events."""
@@ -1117,15 +1069,6 @@ class ContourEditor:
             self.fill_mode = not self.fill_mode
             mode_str = "FILL" if self.fill_mode else "ERASE"
             print(f"[contour_editor] Scissors mode: {mode_str}")
-            self._update_status_bar()
-            self.fig.canvas.draw_idle()
-        elif event.key == 'm':
-            # Toggle edit mode
-            if self.edit_mode == "scissors":
-                self.edit_mode = "refine"
-            else:
-                self.edit_mode = "scissors"
-            print(f"[contour_editor] Edit mode: {self.edit_mode.upper()}")
             self._update_status_bar()
             self.fig.canvas.draw_idle()
         elif event.key == 'a':
@@ -1358,21 +1301,19 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Controls:\n"
-            "  M             Toggle edit mode (Scissors/Refine)\n"
+            "  Draw lasso to edit contour (left-drag or right-drag)\n"
             "  A             Auto-snap boundary (re-detect using gradient)\n"
+            "  E             Toggle fill/erase mode\n"
             "  ←/→ arrows    Navigate ±1 position\n"
             "  ↑/↓ arrows    Navigate ±5 positions\n"
             "  1/2/3         Switch vessel (LAD/LCX/RCA)\n"
-            "  Left-drag     In Scissors: draw lasso | In Refine: smooth contour\n"
-            "  Right-drag    Scissors/lasso tool (fill/erase region)\n"
             "  R             Reset current contour to auto-detected values\n"
-            "  E             Toggle fill/erase mode for scissors\n"
             "  I             Fill between slices (interpolate)\n"
             "  S             Save all corrections and close\n"
             "  Q             Quit without saving\n"
-            "  Scroll        Zoom cross-section view\n"
             "  Space         Toggle contour visibility\n"
             "  V             Toggle VOI visibility\n"
+            "  Scroll        Zoom cross-section view\n"
         ),
     )
 
