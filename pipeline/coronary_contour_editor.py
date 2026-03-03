@@ -218,7 +218,7 @@ class CoronaryContourEditor:
             pcat_slice = self.pcat_mask[:, self.y_slice, :]
             yellow = np.zeros((*pcat_slice.shape, 4))
             yellow[pcat_slice] = [1.0, 1.0, 0.0, 0.35]
-            self.ax_coronal.imshow(yellow.T, origin='lower')
+            self.ax_coronal.imshow(np.transpose(yellow, (1, 0, 2)), origin='lower')
         
         # Add vessel overlays
         self._add_vessel_overlays(self.ax_coronal, "coronal")
@@ -238,7 +238,7 @@ class CoronaryContourEditor:
             pcat_slice = self.pcat_mask[:, :, self.x_slice]
             yellow = np.zeros((*pcat_slice.shape, 4))
             yellow[pcat_slice] = [1.0, 1.0, 0.0, 0.35]
-            self.ax_sagittal.imshow(yellow.T, origin='lower')
+            self.ax_sagittal.imshow(np.transpose(yellow, (1, 0, 2)), origin='lower')
         
         # Add vessel overlays
         self._add_vessel_overlays(self.ax_sagittal, "sagittal")
