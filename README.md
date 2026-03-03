@@ -97,11 +97,14 @@ Opens a clinical GUI for reviewing and correcting the auto-extracted vessel wall
 
 | Key / Action | Effect |
 |---|---|
+| `M` | **Toggle edit mode** (Scissors ↔ Refine) |
+| `A` | **Auto-snap boundary** (re-detect via gradient analysis) |
 | `1` / `2` / `3` | Switch active vessel |
 | `←` / `→` | Navigate ±1 cross-section position |
 | `↑` / `↓` | Navigate ±5 positions |
-| Left-click drag control points | Adjust vessel wall contour shape |
-| Right-click drag | Scissors/lasso tool (fill or erase region) |
+| Left-drag (Scissors) | Draw freehand lasso to fill/erase region |
+| Left-drag (Refine) | Smooth contour deformation with Gaussian falloff |
+| Right-drag | Scissors/lasso tool (backward compat) |
 | `E` | Toggle scissors mode (fill ↔ erase) |
 | `I` | Fill between slices (interpolate modified positions) |
 | `R` | Reset current contour to auto-detected |
@@ -110,9 +113,11 @@ Opens a clinical GUI for reviewing and correcting the auto-extracted vessel wall
 | Scroll wheel | Zoom cross-section view |
 | `S` | **Save corrected contours & continue pipeline** |
 | `Q` | Quit without saving (uses auto-detected contours) |
-- **Left panel:** CPR cross-section with vessel wall contour and control points
+- **Left panel:** CPR cross-section with vessel wall contour
 - **Right panel:** Vessel overview — r_eq profile along arc-length with modification markers
 - **Separate window:** 3D pyvista visualization with colored vessel meshes and semi-transparent fat volume
+- **Two editing modes:** Scissors (default) for bulk fill/erase with freehand lasso; Refine for smooth point-by-point contour adjustment
+- **Auto-snap:** Press `A` to re-detect the vessel boundary using gradient analysis from the CT image — eliminates star-shaped artifacts
 
 ### Stage 7 — VOI construction & FAI computation (~3 s)
 
