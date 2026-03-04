@@ -174,12 +174,16 @@ def _reconstruct_dense_centerline(
     
     pts_mm = control_points_ijk.astype(np.float64) * np.array(spacing_mm)
     
-    # Compute arc-length
+    # Compute arc-length and remove duplicate points (zero-length segments)
     seg = np.linalg.norm(np.diff(pts_mm, axis=0), axis=1)
+    keep = np.concatenate([[True], seg > 1e-8])
+    pts_mm = pts_mm[keep]
+    seg = seg[keep[1:]]
+    if len(pts_mm) < 3:
+        return control_points_ijk.copy()
     arc = np.concatenate([[0.0], np.cumsum(seg)])
     total = arc[-1]
-    
-    if total < 1e-6 or len(pts_mm) < 3:
+    if total < 1e-6:
         return control_points_ijk.copy()
     
     # Fit cubic spline

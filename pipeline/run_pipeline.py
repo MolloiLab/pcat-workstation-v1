@@ -21,20 +21,19 @@ Main CLI entry point for the PCAT segmentation pipeline.
 Full pipeline per patient:
   1. Load DICOM → float32 HU volume
   2. (Optional) Auto-generate seeds via TotalSegmentator if --auto-seeds set
-  3. Compute Frangi vesselness (multi-scale)
+  3. Interactive seed editor with real-time CPR visualization (place/edit seeds, generates centerlines)
   4. For each vessel (LAD, LCX, RCA):
-     a. Extract centerline via FMM/Dijkstra shortest path from seeds
+     a. Load centerline from seed_editor NPZ output
      b. Clip to proximal segment (40mm for LAD/LCX; 10–50mm for RCA)
      c. Estimate vessel radii via EDT (for CPR rendering)
-  5. Interactive centerline editor (review/correct centerlines with CPR feedback)
-  6. Extract vessel wall contours via polar-transform boundary detection
-  7. Centerline verification visualization (with TotalSeg overlay if available)
-  8. Interactive contour correction (scissors-based GUI editor)
-  9. Build contour-based PCAT VOI masks from corrected contours
-  10. Generate outputs: per-vessel stats, .raw exports, CPR visualizations
-  11. Interactive CPR browser (one per vessel)
-  12. Combined VOI export + 3D visualization
-  13. Write per-patient stats JSON + summary chart
+  5. Extract vessel wall contours via polar-transform boundary detection
+  6. Centerline verification visualization (with TotalSeg overlay if available)
+  7. Interactive contour correction (scissors-based GUI editor)
+  8. Build contour-based PCAT VOI masks from corrected contours
+  9. Generate outputs: per-vessel stats, .raw exports, CPR visualizations
+  10. Interactive CPR browser (one per vessel)
+  11. Combined VOI export + 3D visualization
+  12. Write per-patient stats JSON + summary chart
 """
 
 from __future__ import annotations
@@ -58,8 +57,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pipeline.dicom_loader import load_dicom_series
 from pipeline.centerline import (
-    compute_vesselness,
-    extract_centerline_seeds,
     clip_centerline_by_arclength,
     estimate_vessel_radii,
     load_seeds,
@@ -173,20 +170,6 @@ def _ensure_seeds(
 
 
 
-def _find_reviewed_seeds(seeds_path: Path) -> Optional[Path]:
-    """
-    Check if a reviewed version of the seeds file exists.
-    Convention: replace '_auto.json' with '_reviewed.json' in filename.
-    Also checks for a .done signal file (written by seed_reviewer after save).
-    """
-    name = seeds_path.name
-    if "_auto" in name:
-        reviewed_path = seeds_path.parent / name.replace("_auto", "_reviewed")
-        if reviewed_path.exists():
-            print(f"[pipeline] Found reviewed seeds: {reviewed_path}")
-            return reviewed_path
-    return None
-
 def run_patient(
     dicom_dir: str | Path,
     seeds_path: str | Path,
@@ -195,10 +178,8 @@ def run_patient(
     vessels: Optional[List[str]] = None,
     skip_3d: bool = False,
     skip_editor: bool = False,
-    skip_centerline_editor: bool = False,
     skip_cpr_browser: bool = False,
     legacy_voi: bool = False,
-    vesselness_sigmas: Optional[List[float]] = None,
     auto_seeds: bool = False,
     auto_seeds_device: str = _DEFAULT_DEVICE,
     auto_seeds_license: Optional[str] = None,
@@ -212,9 +193,9 @@ def run_patient(
     prefix      : filename prefix for all outputs
     vessels     : list of vessels to process (default: all in seeds file)
     skip_3d     : skip 3D pyvista render (use in headless/CI environments)
-    skip_editor  : skip interactive VOI editor (use in headless/CI environments)
-    skip_centerline_editor : skip only the centerline editor (use in headless/CI environments)
-    vesselness_sigmas : Frangi scale sigmas in mm (default: [0.5, 1.0, 1.5, 2.0, 2.5])
+    skip_editor : skip interactive editors (seed editor and contour editor)
+    skip_cpr_browser : skip interactive CPR browser
+    legacy_voi  : use legacy EDT-based VOI instead of contour-based
     auto_seeds        : if True and seeds_path missing, call TotalSegmentator auto-seed
     auto_seeds_device : device for TotalSegmentator ("cpu"|"gpu"|"mps")
     auto_seeds_license: TotalSegmentator licence key (or set TOTALSEG_LICENSE env var)
@@ -264,68 +245,56 @@ def run_patient(
         auto_seeds_device=auto_seeds_device,
         auto_seeds_license=auto_seeds_license,
     )
-    # -- Step 2b: Seed review (auto-skip if reviewed seeds already exist) -----
-    reviewed = _find_reviewed_seeds(seeds_path)
-    if reviewed is not None:
-        seeds_path = reviewed
-        print(f"[pipeline] Using reviewed seeds: {seeds_path}")
+    
+    # -- Step 2b: Seed editor (interactive seed placement + centerline generation) -----
+    # Derive output paths for seed_editor
+    seed_editor_done = raw_dir / f"{prefix}_seeds.done"
+    seed_editor_seeds = raw_dir / f"{prefix}_seeds.json"
+    seed_editor_centerlines = raw_dir / f"{prefix}_centerlines.npz"
+    
+    # Check if seed_editor has already been run (skip if --skip-editor or done file exists)
+    if skip_editor:
+        print("[pipeline] Skipping seed editor (--skip-editor)")
+        seeds_data = load_seeds(seeds_path)
+    elif seed_editor_done.exists() and seed_editor_centerlines.exists():
+        # Load previously saved seeds from seed_editor
+        print(f"[pipeline] Found seed editor outputs: {seed_editor_done}")
+        if seed_editor_seeds.exists():
+            seeds_path = seed_editor_seeds
+            print(f"[pipeline] Using edited seeds: {seeds_path}")
+        seeds_data = load_seeds(seeds_path)
     else:
-        # Derive reviewed output path
-        name = seeds_path.name
-        if "_auto" in name:
-            reviewed_path = seeds_path.parent / name.replace("_auto", "_reviewed")
-        else:
-            reviewed_path = seeds_path.parent / (seeds_path.stem + "_reviewed.json")
-        print(f"[pipeline] No reviewed seeds found. Opening seed reviewer...")
-        print(f"[pipeline] Review seeds then press 's' to save and continue the pipeline.")
+        # Launch seed_editor
+        print("\n[pipeline] Launching Seed Editor...")
+        print("[pipeline] Place/edit seed points, then press 's' to save and continue.")
         import subprocess as _sp, sys as _sys
         _sp.run(
             [
                 _sys.executable,
-                str(Path(__file__).parent / "seed_reviewer.py"),
+                str(Path(__file__).parent / "seed_editor.py"),
                 "--dicom", str(dicom_dir),
                 "--seeds", str(seeds_path),
-                "--output", str(reviewed_path),
+                "--output", str(raw_dir),
+                "--prefix", prefix,
             ],
             check=False,
         )
-        # After seed_reviewer closes, use reviewed seeds if written
-        if reviewed_path.exists():
-            seeds_path = reviewed_path
-            print(f"[pipeline] Seed review complete. Using: {seeds_path}")
+        
+        # After seed_editor closes, load results
+        if seed_editor_done.exists() and seed_editor_centerlines.exists():
+            if seed_editor_seeds.exists():
+                seeds_path = seed_editor_seeds
+                print(f"[pipeline] Seed editor complete. Using edited seeds: {seeds_path}")
+            else:
+                print(f"[pipeline] Seed editor complete. Using original seeds.")
+            seeds_data = load_seeds(seeds_path)
         else:
-            print(f"[pipeline] WARNING: Seed reviewer closed without saving. Using original seeds.")
-    seeds_data = load_seeds(seeds_path)
+            print("[pipeline] Seed editor closed without saving. Using original seeds.")
+            seeds_data = load_seeds(seeds_path)
+    
     if vessels is None:
         vessels = list(seeds_data.keys())
     print(f"[pipeline] Vessels to process: {vessels}")
-
-    # ── Step 3: Compute vesselness (ROI-cropped around seed points) ────────
-    # Collect ALL seed points across all vessels so the ROI covers the whole
-    # coronary tree — Frangi runs on a small sub-volume instead of the full
-    # 512×512×405, giving a 50-100× speedup.
-    all_seed_pts: List[List[int]] = []
-    for vname in vessels:
-        if vname not in seeds_data:
-            continue
-        vsd = seeds_data[vname]
-        ostium = vsd["ostium_ijk"]
-        # Skip null/placeholder seeds (auto_seeds inserts [None,None,None] for missing vessels)
-        if ostium and all(v is not None for v in ostium):
-            all_seed_pts.append(ostium)
-        for wp in vsd.get("waypoints_ijk", []):
-            if wp and all(v is not None for v in wp):
-                all_seed_pts.append(wp)
-
-    print("\n[pipeline] Computing Frangi vesselness filter (ROI-cropped — ~120s)...")
-    t_v = time.time()
-    vesselness = compute_vesselness(
-        volume, spacing_mm,
-        sigmas=vesselness_sigmas,
-        seed_points=all_seed_pts if all_seed_pts else None,
-        roi_margin_mm=20.0,
-    )
-    print(f"[pipeline] Vesselness computed in {time.time() - t_v:.1f}s")
 
     # ── Per-vessel processing ─────────────────────────────────────────────
     vessel_voi_masks: Dict[str, np.ndarray] = {}
@@ -353,28 +322,24 @@ def run_patient(
             print(f"[pipeline] WARNING: {msg}")
             results["errors"].append(msg)
             continue
-        waypoints_ijk = vsd.get("waypoints_ijk", [])
+        
         seg_start = float(VESSEL_CONFIGS[vessel_name].get("start_mm", 0.0))
         seg_length = float(VESSEL_CONFIGS[vessel_name].get("length_mm", 40.0))
 
-        # ── Centerline extraction ──────────────────────────────────────
-        print(f"[pipeline] Extracting {vessel_name} centerline...")
-        try:
-            centerline_full = extract_centerline_seeds(
-                volume=volume,
-                vesselness=vesselness,
-                spacing_mm=spacing_mm,
-                ostium_ijk=ostium_ijk,
-                waypoints_ijk=waypoints_ijk,
-                roi_radius_mm=35.0,
-            )
-        except Exception as e:
-            msg = f"{vessel_name} centerline extraction failed: {e}"
-            print(f"[pipeline] ERROR: {msg}")
+        # ── Load centerline from seed_editor NPZ ───────────────────────────
+        centerline_full = None
+        if seed_editor_centerlines.exists():
+            cl_data = np.load(str(seed_editor_centerlines), allow_pickle=True)
+            cl_key = f"{vessel_name}_centerline_ijk"
+            if cl_key in cl_data:
+                centerline_full = cl_data[cl_key]
+                print(f"[pipeline] Loaded {vessel_name} centerline from seed_editor: {len(centerline_full)} points")
+        
+        if centerline_full is None or len(centerline_full) < 3:
+            msg = f"{vessel_name} centerline not found in seed_editor output"
+            print(f"[pipeline] WARNING: {msg}")
             results["errors"].append(msg)
             continue
-
-        print(f"[pipeline] Full centerline: {len(centerline_full)} points")
 
         # ── Clip to proximal segment ───────────────────────────────────
         centerline = clip_centerline_by_arclength(
@@ -407,67 +372,7 @@ def run_patient(
 
         print(f"[pipeline] {vessel_name} data ready in {time.time() - t_vsl:.1f}s")
 
-    # ── Step 3a: Centerline Editor ─────────────────────────────────────────
-    # Launch interactive editor to review/correct vessel centerlines.
-    # Modified centerlines are used for contour extraction.
-    if not skip_editor and not skip_centerline_editor and vessel_centerlines_proximal:
-        centerline_npz = raw_dir / f"{prefix}_centerlines.npz"
-        centerline_done = raw_dir / f"{prefix}_centerline_editor.done"
-        
-        # Save current centerlines for the editor
-        cl_save = {}
-        for vn, cl in vessel_centerlines.items():
-            cl_save[f"{vn}_centerline"] = cl
-        np.savez(str(centerline_npz), **cl_save)
-        
-        print("\n[pipeline] Launching Centerline Editor...")
-        print("[pipeline] Review/correct centerlines, then press 'S' to save and continue.")
-        try:
-            import subprocess as _subprocess
-            import sys as _sys
-            _subprocess.run(
-                [
-                    _sys.executable,
-                    str(Path(__file__).parent / "centerline_editor.py"),
-                    "--dicom",  str(dicom_dir),
-                    "--seeds",  str(seeds_path),
-                    "--output", str(raw_dir),
-                    "--prefix", prefix,
-                ],
-                check=False,
-            )
-        except Exception as _e:
-            print(f"[pipeline] WARNING: centerline editor error: {_e}")
-        
-        # Load modified centerlines if saved
-        edited_npz = raw_dir / f"{prefix}_centerlines.npz"
-        if centerline_done.exists() and edited_npz.exists():
-            edited_data = np.load(str(edited_npz), allow_pickle=True)
-            for vn in list(vessel_centerlines.keys()):
-                key = f"{vn}_centerline"
-                if key in edited_data:
-                    new_cl = edited_data[key]
-                    print(f"[pipeline] {vn}: loaded edited centerline ({len(new_cl)} pts)")
-                    vessel_centerlines[vn] = new_cl
-                    # Re-clip to proximal segment
-                    seg_start = float(VESSEL_CONFIGS[vn].get("start_mm", 0.0))
-                    seg_length = float(VESSEL_CONFIGS[vn].get("length_mm", 40.0))
-                    centerline_prox = clip_centerline_by_arclength(
-                        new_cl, spacing_mm, start_mm=seg_start, length_mm=seg_length,
-                    )
-                    if len(centerline_prox) >= 5:
-                        vessel_centerlines_proximal[vn] = centerline_prox
-                        # Re-estimate radii
-                        vessel_radii_dict[vn] = estimate_vessel_radii(volume, centerline_prox, spacing_mm)
-                        vessel_radii_full_dict[vn] = estimate_vessel_radii(volume, new_cl, spacing_mm)
-                    else:
-                        print(f"[pipeline] WARNING: edited {vn} centerline too short after clip, keeping original")
-            centerline_done.unlink(missing_ok=True)
-            print("[pipeline] Centerline editor: corrections loaded.")
-        else:
-            print("[pipeline] Centerline editor closed without saving. Using auto-extracted centerlines.")
-
-    # ── Step 3a½: Contour extraction (using final centerlines) ──────────
+    # ── Step 3a: Contour extraction (using centerlines from seed_editor) ──────────
     if not legacy_voi:
         for vessel_name in vessels:
             if vessel_name not in vessel_centerlines_proximal:
@@ -936,14 +841,6 @@ def main():
         ),
     )
     parser.add_argument(
-        "--skip-centerline-editor", action="store_true",
-        dest="skip_centerline_editor",
-        help=(
-            "Skip only the centerline editor (still show contour editor). "
-            "Useful when you want to manually adjust contours but not centerlines."
-        ),
-    )
-    parser.add_argument(
         "--skip-cpr-browser", action="store_true",
         dest="skip_cpr_browser",
         help=(
@@ -1019,7 +916,6 @@ def main():
                     vessels=args.vessels,
                     skip_3d=args.skip_3d,
                     skip_editor=args.skip_editor,
-                    skip_centerline_editor=args.skip_centerline_editor,
                     skip_cpr_browser=args.skip_cpr_browser,
                     legacy_voi=args.legacy_voi,
                     auto_seeds=args.auto_seeds,
@@ -1053,7 +949,6 @@ def main():
             vessels=args.vessels,
             skip_3d=args.skip_3d,
             skip_editor=args.skip_editor,
-            skip_centerline_editor=args.skip_centerline_editor,
             skip_cpr_browser=args.skip_cpr_browser,
             legacy_voi=args.legacy_voi,
             auto_seeds=args.auto_seeds,
