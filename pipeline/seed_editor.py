@@ -1054,7 +1054,7 @@ class SeedEditor:
         """
         if vessel is None:
             vessel = self.current_vessel
-        min_dist = float("inf")
+        nearest = None
         def _dist2(sz, sy, sx):
             if view == 'coronal':
                 # Coronal shows (Z, X) — ignore Y depth
@@ -1079,7 +1079,7 @@ class SeedEditor:
                 nearest = (vessel, f"waypoint_{i}", wp)
         if min_dist > PROXIMITY_THRESHOLD ** 2:
             return None
-    
+        return nearest
     def _delete_nearest_waypoint(
         self,
         z: int,
