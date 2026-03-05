@@ -35,7 +35,7 @@ Interaction:
   - Scroll wheel: adjust MIP slab center
   - Shift+scroll: adjust slab thickness (±2mm, range 5-50mm)
   - 1/2/3: switch vessel (resets selection)
-  - u: undo | r: reset vessel | s: save | q: quit
+  - u: undo | r: reset vessel | s: save | q: save & quit
 
 Usage:
     python pipeline/seed_editor.py \
@@ -77,7 +77,7 @@ from pipeline.dicom_loader import load_dicom_series
 from pipeline.visualize import (
     _bezier_fit_centerline,
     _sample_bezier_frame,
-    _build_cpr_image_fast,
+    _build_cpr_image,
 )
 
 
@@ -220,7 +220,7 @@ def _compute_cpr_from_centerline(
     row_extent_mm: float = 15.0,
 ) -> Optional[np.ndarray]:
     """
-    Compute CPR image from dense centerline using fast linear interpolation.
+    Compute CPR image from dense centerline using cubic interpolation.
     
     Parameters
     ----------
@@ -249,7 +249,7 @@ def _compute_cpr_from_centerline(
         cs, total_len, n_pixels
     )
     
-    cpr_img = _build_cpr_image_fast(
+    cpr_img = _build_cpr_image(
         volume, vox_size, positions, normals, binormals,
         n_rows=n_pixels, row_extent_mm=row_extent_mm, slab_mm=0.0
     )
@@ -1292,10 +1292,10 @@ class SeedEditor:
         key = event.key
 
         if key == 'q':
-            print("[seed_editor] Quit without saving")
+            self._save()
             plt.close(self.fig)
         elif key == 's':
-            self._save_and_close()
+            self._save()
         elif key == 'u':
             self._undo()
         elif key == 'r':
@@ -1393,8 +1393,8 @@ class SeedEditor:
     # Save
     # ─────────────────────────────────────────────────────────────────────────
     
-    def _save_and_close(self) -> None:
-        """Save seeds, centerlines, and close."""
+    def _save(self) -> None:
+        """Save seeds and centerlines to disk."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # ── Save seeds JSON ───────────────────────────────────────────────────
@@ -1438,13 +1438,13 @@ class SeedEditor:
         signal_path.write_text("done")
         print(f"[seed_editor] Signal written: {signal_path}")
         
-        plt.close(self.fig)
+
     
     def run(self) -> None:
         """Run the interactive editor (blocks until window is closed)."""
         print("\n=== PCAT Seed Editor ===")
-        print("Keys:  1/2/3 = Switch vessel  |  ←→ = Cycle selection  |  Backspace = Delete selected")
-        print("       Enter = Insert midpoint  |  u = Undo  |  r = Reset vessel  |  s = Save & close  |  q = Quit")
+        print("Keys:  1/2/3 = Switch vessel  |  \u2190\u2192 = Cycle selection  |  Backspace = Delete selected")
+        print("       Enter = Add waypoint  |  u = Undo  |  r = Reset vessel  |  s = Save  |  q = Save & quit")
         print("Interaction:")
         print("  - Left-click to select seed, click+drag to move selected seed")
         print("  - Right-click to delete nearest waypoint")
