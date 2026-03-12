@@ -1,4 +1,4 @@
-# Oxford Translational Cardiovascular Research Group — Deep Competitive Analysis
+# Oxford Group — Pericoronary Adipose Tissue Research Program
 
 > **PI: Prof. Charalambos Antoniades, MD PhD FRCP FESC**
 > BHF Chair of Cardiovascular Medicine, University of Oxford
@@ -8,643 +8,500 @@
 
 ## Table of Contents
 
-- [Executive Summary: Why This Group Is Dangerous](#executive-summary-why-this-group-is-dangerous)
-- [The Playbook: How They Build a Field and Own It](#the-playbook-how-they-build-a-field-and-own-it)
-- [Phase 1: Biological Foundation (2013–2016) — The Intellectual Land-Grab](#phase-1-biological-foundation-20132016--the-intellectual-land-grab)
-- [Phase 2: Narrative Control (2017 Reviews) — Framing the Field Before the Breakthrough](#phase-2-narrative-control-2017-reviews--framing-the-field-before-the-breakthrough)
-- [Phase 3: The FAI Breakthrough and Clinical Validation (2017–2018)](#phase-3-the-fai-breakthrough-and-clinical-validation-20172018)
-- [Phase 4: Expansion and Moat-Building (2019)](#phase-4-expansion-and-moat-building-2019)
-- [Phase 5: Clinical Translation and Commercialization (2020–2023)](#phase-5-clinical-translation-and-commercialization-20202023)
-- [Phase 6: Large-Scale Validation and Market Lock-In (2024–2026)](#phase-6-large-scale-validation-and-market-lock-in-20242026)
-- [The Patent: What It Covers and What It Doesn't](#the-patent-what-it-covers-and-what-it-doesnt)
-- [Caristo Diagnostics: The Commercial Arm](#caristo-diagnostics-the-commercial-arm)
-- [Their Real Weaknesses — Where They Can Be Beaten](#their-real-weaknesses--where-they-can-be-beaten)
-- [What You Need to Learn and Build to Compete](#what-you-need-to-learn-and-build-to-compete)
-- [Paper-by-Paper Detailed Catalogue](#paper-by-paper-detailed-catalogue)
+- [How They Built This: Research Architecture](#how-they-built-this-research-architecture)
+- [Phase 1: The Biology (2013–2016)](#phase-1-the-biology-20132016)
+- [Phase 2: Conceptual Framework Building (2017 Reviews)](#phase-2-conceptual-framework-building-2017-reviews)
+- [Phase 3: FAI — From Biology to Imaging (2017–2018)](#phase-3-fai--from-biology-to-imaging-20172018)
+- [Phase 4: Extending the Science (2019)](#phase-4-extending-the-science-2019)
+- [Phase 5: Clinical Translation (2020–2023)](#phase-5-clinical-translation-20202023)
+- [Phase 6: Population-Scale Validation (2024–2026)](#phase-6-population-scale-validation-20242026)
+- [The Patent](#the-patent)
+- [Caristo Diagnostics](#caristo-diagnostics)
+- [Open Questions and Limitations](#open-questions-and-limitations)
+- [Knowledge Gaps to Fill](#knowledge-gaps-to-fill)
+- [Paper Catalogue](#paper-catalogue)
 
 ---
 
-## Executive Summary: Why This Group Is Dangerous
+## How They Built This: Research Architecture
 
-This is not just a research group. It is an integrated bench-to-bedside-to-boardroom operation that has:
+The Oxford program spans 13 years and follows a coherent logic: establish the biology in human tissue, translate it to an imaging readout, validate the imaging in large cohorts, standardize it for clinical use, and build the regulatory/economic evidence for adoption.
 
-1. **Created a biological concept** (bidirectional PVAT-vascular signaling) from scratch with human tissue from 1,000+ cardiac surgery patients
-2. **Invented a biomarker** (FAI) grounded in that biology, not just a statistical association
-3. **Validated it in 40,000+ patients** across multinational registries
-4. **Patented the methodology** before publishing the landmark paper
-5. **Built a company** (Caristo Diagnostics) that has CE marking, UKCA, and FDA 510(k) clearance
-6. **Written the consensus standards** (ESC Working Group statement) that define how the field measures what they invented
-7. **Published the cost-effectiveness data** that NHS commissioners need to fund deployment
+What makes it work is the tight coupling between bench science and clinical imaging. Each imaging claim traces back to a specific molecular mechanism demonstrated in human tissue. This is rare — most imaging biomarkers are discovered empirically (statistical association with outcomes) and only later investigated mechanistically, if at all. The Oxford group worked the other direction: they understood why PVAT changes before they ever measured it on a CT scan.
 
-The total pipeline from first biology paper (2013) to FDA-cleared product and 40,000-patient Lancet validation (2024) took 11 years. The group published 36 papers in this collection alone, in Circulation, Lancet (×2), Science Translational Medicine (×2), European Heart Journal (×4), JACC (×5), and Nature Reviews Cardiology. They accumulated >4,000 citations on their top 5 papers.
-
-**The honest assessment:** This group has executed one of the most complete translational pipelines in modern cardiovascular imaging. They didn't just discover something — they systematically built the science, the narrative, the IP, the regulatory pathway, the clinical evidence base, and the commercial product in a coordinated, decade-long campaign.
-
----
-
-## The Playbook: How They Build a Field and Own It
-
-Understanding their strategy matters more than understanding any individual paper. Here is the pattern:
-
-### 1. Biology First, Always
-Every imaging finding traces back to a molecular mechanism they established with human tissue. When they say FAI detects "inflammation," they can point to specific experiments: cytokines from inflamed vessels inhibit preadipocyte differentiation, shifting lipid/water balance in PVAT (2017 Sci Transl Med, 453 CABG patients + 273 CTA subjects). When they say FRP captures "fibrosis," they have paired CT radiomics with tissue gene expression of COL1A1 and CD31 from surgical biopsies (2019 EHJ, 167 surgery patients). This is their moat: nobody else has access to matched human coronary PVAT tissue + imaging at this scale.
-
-### 2. The CABG Patient Pipeline
-Their secret weapon is the Oxford cardiac surgery service. CABG patients provide:
-- Internal mammary arteries with intact PVAT (for ex vivo experiments)
+**The CABG tissue pipeline** is central to everything. Oxford's cardiac surgery service provides:
+- Internal mammary arteries with intact PVAT (ex vivo vascular experiments)
 - Saphenous veins for vasomotor studies
-- Epicardial, perivascular, subcutaneous, and thoracic adipose tissue biopsies (for depot comparisons)
-- Preoperative CT imaging (for imaging-histology correlation)
+- Matched adipose tissue from 4 depots: perivascular (peri-IMA, peri-SV), epicardial, thoracic, subcutaneous
+- Preoperative CT imaging for imaging-histology correlation
 
-They have used this pipeline in nearly every biology paper: n=677 (2013), n=386 (2015), n=453+37+273 (2017 FAI discovery), n=167 (2019 FRP radiotranscriptomics), n=1,004 (2019 WNT5A), n=253 (2023 EAT deep learning AF substudy), n=1,200+ (2023 miR-92a-3p). The cumulative tissue biobank is massive and irreplaceable.
+Cumulative tissue biobank across papers: n=677 (2013), n=386 (2015), n=453+37+273 (2017), n=167 (2019 FRP), n=1,004 (2019 WNT5A), n=1,200+ (2023 miR-92a-3p). This is thousands of matched tissue-imaging pairs, built up over a decade.
 
-### 3. Reviews That Set Traps
-In 2017, they published 5 review papers simultaneously — a burst of 5 comprehensive reviews across British Journal of Pharmacology (×3), Cardiovascular Research, and Journal of Physiology. These reviews:
-- Defined PVAT as "an active endocrine organ with bidirectional signaling" (their concept)
-- Systematically dismissed EAT volume as an inconsistent measure (undermining competitors like Framingham, MESA studies)
-- Identified gaps ("better imaging tools needed," "no established PVAT definition") that their upcoming FAI paper would fill
-- Positioned the "adiponectin paradox" as a problem only their bidirectional signaling model could solve
-- Created the narrative of a field in crisis, waiting for a solution
+**How each paper connects to the next:**
 
-The FAI paper in Science Translational Medicine dropped the same year. The reviews had primed every reviewer and reader to see it as the answer.
+```
+2013 Adiponectin/eNOS → Outside-to-inside signaling established
+  ↓ But what about NADPH oxidase specifically? And disease states?
+2015 Adiponectin/NADPH oxidase in T2D → Mendelian randomization, coculture proof
+  ↓ But this is arteries only. What about the myocardium?
+2016 EAT-myocardium signaling → Inside-to-outside loop completed
+  ↓ PVAT composition reflects vascular disease. Can imaging detect this?
+2017 FAI discovery → CT captures inflammation-induced PVAT changes
+  ↓ Cross-sectional only. Does it predict future events?
+2018 CRISP-CT → FAI predicts cardiac mortality in 3,912 patients
+  ↓ FAI is dynamic/reversible. What about chronic structural damage?
+2019 FRP → Radiomic texture captures fibrosis + vascularity
+  ↓ What molecular pathways beyond adiponectin drive PVAT dysfunction?
+2019 WNT5A → Second druggable axis identified
+  ↓ How to standardize FAI across scanners for clinical use?
+2021 FAI-Score → Scanner-adjusted, age/sex-normalized metric
+  ↓ Does it hold at scale? Is it cost-effective?
+2024 ORFAN → 40,091-patient validation
+2025 Cost-effectiveness → ICER £1,371-3,244/QALY
+```
 
-### 4. Concentric Validation Circles
-Each paper validates the previous one while extending the territory:
-- 2013: Adiponectin/eNOS biology in CABG patients → establishes outside-to-inside signaling
-- 2015: Adds NADPH oxidase specificity, Mendelian randomization with ADIPOQ SNPs → genetic causal argument
-- 2016: Discovers inside-to-outside signaling (4-HNE/PPARγ) → completes the bidirectional loop
-- 2017: Translates biology to imaging (FAI) → cross-sectional validation in ACS patients
-- 2018 CRISP-CT: Prognostic validation in 3,912 patients → hard endpoint (mortality)
-- 2019 FRP: Machine learning extension → captures chronic remodeling beyond acute inflammation
-- 2020: FAI + high-risk plaque interaction → incremental risk stratification
-- 2021: FAI-Score standardization → scanner-independent clinical tool
-- 2023: Deep learning EAT + ESC consensus → automated + guideline-endorsed
-- 2024 ORFAN: 40,091-patient validation → definitive population-level evidence
-- 2025: Cost-effectiveness + FAI-Score robustness → health economics + regulatory
-
-No paper is wasted. Each one answers a specific objection and opens the door for the next.
-
-### 5. Definitional Control
-They defined:
-- What PVAT is: "adipose tissue within a radial distance from the outer vessel wall equal to the diameter of the adjacent vessel" (their definition, now in ESC consensus)
-- How to measure it: -190 to -30 HU attenuation window, proximal 40mm of each artery, excluding proximal 10mm of RCA
-- What the thresholds mean: -70.1 HU (CRISP-CT), then 75th/90th/95th percentile nomograms (FAI-Score)
-- What counts as validated: their own 16-point radiomic quality framework (2020 CVR review)
-
-When you define the measurement, the thresholds, the quality criteria, and the terminology, you own the field. Anyone doing PVAT research is working within their framework.
-
-### 6. The ESC Consensus as Regulatory Moat
-The 2023 ESC Working Group consensus statement is arguably more strategically important than any single research paper. It:
-- Endorses FAI-Score as "the only regulatory-cleared metric for coronary inflammation assessment"
-- Adopts their PVAT definition verbatim
-- Lists CaRi-Heart v2.5 by name as the CE-marked device
-- Identifies "gaps" that happen to be their next planned publications
-- Creates a framework where any competitor must now validate against FAI-Score as the reference standard
+No paper repeats the previous one. Each answers a specific limitation and opens a new question.
 
 ---
 
-## Phase 1: Biological Foundation (2013–2016) — The Intellectual Land-Grab
+## Phase 1: The Biology (2013–2016)
 
-### Paper 1: Margaritis et al. 2013 — Circulation (IF 35.5, ~321 citations)
-**"Adiponectin/eNOS in Human Vessels"**
+### Margaritis et al. 2013 — Circulation | n=677+46 CABG | ~321 citations
 
-**What they actually did:** Collected vessels + adipose tissue from 677 CABG patients (Study 1) and 46 additional patients (Study 2). Measured FMD the day before surgery (non-invasive endothelial function). Then performed ex vivo organ bath experiments, lucigenin chemiluminescence for superoxide, HPLC for biopterins (BH4), Western blots for Akt/eNOS phosphorylation, qRT-PCR for ADIPOQ/PPARγ across 4 adipose depots. Used two ADIPOQ SNPs (rs17366568, rs266717) as Mendelian randomization instruments.
+This paper established the core idea: PVAT and the vascular wall communicate bidirectionally through paracrine signals.
 
-**The intellectual architecture (8 steps):**
-1. Circulating adiponectin correlates with FMD and ACh-mediated vasorelaxation (endothelium-specific, not endothelium-independent)
-2. Circulating adiponectin inversely correlates with vascular O2⁻, BUT local PVAT adiponectin positively correlates with O2⁻ — a paradox
-3. Circulating adiponectin tracks with remote fat depots (mesothoracic, subcutaneous) but NOT perivascular fat — different regulation
-4. PPARγ is the master regulator of ADIPOQ across all depots
-5. ADIPOQ SNPs predict circulating adiponectin and endothelial function (genetic causal argument) — but do NOT predict PVAT adiponectin, so the genetic evidence applies only to the systemic pathway
-6. Exogenous adiponectin reduces O2⁻ and restores eNOS coupling in ex vivo vessels
-7. Mechanism: dual pathway — PI3K/Akt-mediated eNOS phosphorylation (blocked by wortmannin) + BH4 biosynthesis (blocked by DAHP)
-8. Vascular oxidative stress (4-HNE) upregulates PVAT adiponectin via PPARγ — the reverse signal, establishing bidirectional cross-talk
+**Methods worth understanding in detail:**
+- **Brachial FMD measured the day before surgery** — gives an in vivo endothelial function measure to correlate with ex vivo tissue findings. This bridge between clinical and bench data is a recurring design element.
+- **Lucigenin chemiluminescence (5 μmol/L)** for vascular superoxide. The lower concentration reduces redox cycling artifacts inherent to higher doses.
+- **HPLC for biopterins (BH4/BH2)** — quantifies eNOS cofactor availability, which determines whether eNOS produces NO (coupled) or superoxide (uncoupled). This assay is technically demanding and specific to their group's expertise.
+- **Two ADIPOQ SNPs (rs17366568, rs266717)** used as Mendelian randomization instruments — genetic variants that alter circulating adiponectin levels, providing quasi-causal evidence without the confounding of observational data.
+- **4-HNE incubation of PVAT (30 μmol/L, 16h)** ± PPARγ inhibitor T0070907 — tests the reverse signal (vessel → fat).
 
-**What was genuinely novel:**
-- First human tissue demonstration of bidirectional PVAT-vascular signaling
-- Dissociation of circulating vs. local adiponectin effects (opposite associations with O2⁻)
-- Dual mechanism of adiponectin on eNOS (PI3K/Akt + BH4)
+**The 8-step logical chain:**
+1. Circulating adiponectin correlates with endothelium-dependent (but not -independent) vascular function — establishing specificity
+2. Circulating adiponectin inversely correlates with vascular O2⁻, BUT local PVAT adiponectin positively correlates — a paradox that reveals two different regulatory systems
+3. Circulating adiponectin tracks with remote fat depots (mesothoracic, subcutaneous) but NOT perivascular — confirming different regulation
+4. PPARγ is the master regulator of ADIPOQ across all depots (r values 0.344-0.976)
+5. ADIPOQ SNPs predict circulating adiponectin and endothelial function, but do NOT predict PVAT adiponectin — genetic evidence applies only to the systemic pathway
+6. Exogenous adiponectin restores eNOS coupling in ex vivo vessels
+7. Dual mechanism: PI3K/Akt-mediated eNOS phosphorylation (blocked by wortmannin) + BH4 biosynthesis (blocked by DAHP)
+8. Vascular oxidative stress (4-HNE) upregulates PVAT adiponectin via PPARγ — the reverse signal
 
-**Key unacknowledged limitations:**
-- 4-HNE experiments used pharmacological doses (30 μmol/L) at a single time point — physiological relevance uncertain
-- No measurement of adiponectin diffusion from PVAT into the vascular wall (assumed but never shown for this 30kDa+ multimer)
-- Only 17% female; no sex-stratified analysis
-- The Mendelian randomization only validates the circulating pathway, not the local paracrine pathway they emphasize
+**What was new:** The bidirectional cross-talk concept. Previous work had shown PVAT releases adipokines that affect vessels (outside-to-inside). Nobody had shown the vessel signals back to the fat (inside-to-outside). The dissociation between circulating and local adiponectin — showing they have opposite associations with vascular O2⁻ — was a genuine insight that reframed the field.
 
-**How it set up everything after:** The observation that PVAT biology changes in response to vascular disease states is the conceptual precursor to FAI. If PVAT composition reflects vascular health, then imaging PVAT composition could diagnose vascular disease.
-
----
-
-### Paper 2: Antonopoulos et al. 2015 — Diabetes (IF 7.7, ~241 citations)
-**"Adiponectin Links T2D to Vascular NADPH Oxidase"**
-
-**What they added:** n=386 CABG patients. Introduced NADPH oxidase-specific superoxide measurement using Vas2870 inhibitor (methodological advance). Focused on IMAs only. Used the same ADIPOQ SNPs but now for NADPH oxidase-specific outcome.
-
-**Critical finding:** In multivariable analysis including ADIPOQ genotype, T2D loses its independent prediction of NADPH oxidase activity (β=0.068, P=0.192) while ADIPOQ genotype remains significant (β=-0.081, P=0.001). This is a genuine Mendelian randomization argument: T2D's effect on vascular oxidative stress is mediated through adiponectin.
-
-**Clever addition:** Coculture experiments — PVAT incubated with or without its matched IMA, ± NADPH stimulation, ± PEG-SOD. Directly demonstrated that vascular NADPH oxidase activity sends signals to neighboring PVAT. Used pharmacological dissection (SOD scavenging abolished the signal, confirming O2⁻ as the messenger) and showed the reverse signal works through 4-HNE/MDA → PPARγ → adiponectin.
-
-**Important negative finding:** Plasma MDA and 4-HNE (systemic oxidative stress markers) do NOT correlate with arterial NADPH oxidase-derived O2⁻ (r=0.076, P=0.448). Systemic biomarkers are unreliable proxies for vascular biology. This is a recurring argument they use to justify local tissue imaging over blood tests.
+**Honest limitations:**
+- 4-HNE at 30 μmol/L is pharmacological; physiological relevance at the tissue interface is assumed
+- No demonstration that adiponectin (30kDa+ multimer) actually diffuses from PVAT across the adventitia into the vessel wall — paracrine delivery is assumed but never measured
+- 83% male; no sex-stratified analysis
+- The Mendelian randomization validates only the circulating pathway, not the local paracrine pathway they emphasize
 
 ---
 
-### Paper 3: Antonopoulos et al. 2016 — Circulation Research (IF 20.1, ~158 citations)
-**"EAT-Myocardial Redox Regulation via PPARγ/Adiponectin"**
+### Antonopoulos et al. 2015 — Diabetes | n=386+67 CABG | ~241 citations
 
-**Key contribution:** Extended the bidirectional signaling model from PVAT-vessel to EAT-myocardium. Discovered that myocardial oxidative stress generates 4-HNE that diffuses into epicardial fat, upregulating adiponectin via PPARγ activation — completing the inside-to-outside loop for the cardiac compartment.
+Extended the 2013 work to NADPH oxidase specifically and to the disease context of type 2 diabetes.
 
-**Why this matters for competition:** It broadened their territory from coronary arteries to the whole heart, justifying their later expansion into EAT volume quantification (2023 deep learning paper) and EAT-derived miRNA biology (2023 JACC miR-92a-3p paper).
+**Key methodological advances over 2013:**
+- **Vas2870** (specific NADPH oxidase inhibitor) allows isolation of NADPH oxidase-derived superoxide from total superoxide
+- **Thoracic AT (non-vessel-associated)** added as a control depot — cleaner comparison than subcutaneous
+- **Coculture system:** PVAT incubated with/without its matched IMA, ± NADPH stimulation, ± PEG-SOD. This directly tested whether vascular NADPH oxidase activity signals to neighboring PVAT.
+
+**The finding that matters most:** In multivariable analysis including ADIPOQ genotype, T2D loses independent prediction of NADPH oxidase activity (β=0.068, P=0.192) while ADIPOQ genotype remains significant (β=-0.081, P=0.001). This is genuine Mendelian randomization evidence that T2D's effect on vascular oxidative stress is mediated through adiponectin.
+
+**Important negative finding:** Plasma MDA and 4-HNE (systemic oxidative stress markers) do NOT correlate with arterial NADPH oxidase-derived O2⁻ (r=0.076, P=0.448). This is one of the most consequential observations in the entire program — it means systemic blood biomarkers cannot substitute for local tissue assessment. This finding recurs throughout their work and is the fundamental justification for imaging-based approaches.
+
+**Two temporal mechanisms of adiponectin on NADPH oxidase:** Rapid (6h) RAC1 deactivation preventing NADPH oxidase assembly at the membrane, and subacute (18h) p22phox protein downregulation. This level of mechanistic detail is what gives their imaging claims biological weight.
 
 ---
 
-### Phase 1 Competitive Assessment
+### Antonopoulos et al. 2016 — Circulation Research | ~158 citations
 
-**Their advantage:** Nobody else has a cardiac surgery pipeline that yields matched human tissue from 4 adipose depots + 2 vessel types + preoperative imaging at this scale. The Oxford biobank is the foundation of everything. Every mechanistic claim is grounded in human, not murine, data.
+Extended bidirectional signaling from the PVAT-artery axis to the EAT-myocardium axis. Myocardial oxidative stress generates 4-HNE → diffuses into epicardial fat → activates PPARγ → upregulates adiponectin as a protective feedback loop.
 
-**Their vulnerability:** The biology is studied almost exclusively in CABG patients — a highly selected population (advanced CAD, multiple comorbidities, 83% male, nearly all on statins/ACEi). The paracrine signaling they describe may not operate the same way in early disease, younger patients, or women.
+This bridged from peripheral vessels to the cardiac compartment, justifying later expansion into EAT quantification and EAT-derived miRNA biology.
 
 ---
 
-## Phase 2: Narrative Control (2017 Reviews) — Framing the Field Before the Breakthrough
+### What Phase 1 teaches us
 
-They published **5 reviews in a single year**, across 4 journals. This was not coincidence. It was a coordinated campaign to:
+The biology rests on a specific experimental toolkit: organ bath physiology, lucigenin chemiluminescence, HPLC biopterins, Western blotting for signaling intermediates, DHE fluorescence microscopy, ex vivo coculture, and Mendelian randomization via adipokine gene variants. Understanding these methods — their strengths and their artifacts — is essential for evaluating and extending the work.
 
-1. **Establish the conceptual framework** (bidirectional PVAT-vascular signaling) as accepted consensus
-2. **Systematically dismiss competitors:** EAT volume studies (inconsistent results), PET-CT (expensive, poor spatial resolution, limited availability), circulating biomarkers (non-specific)
-3. **Create demand for their solution:** repeatedly highlighting that "better imaging tools are required" and "no established definition" exists for PVAT
-4. **Stake definitional claims:** PVAT definition, depot nomenclature, the "dysfunctional adipose tissue" concept
+The CABG patient population constrains generalizability. These are patients with advanced multi-vessel CAD, mean age ~65, 83% male, nearly all on statins and ACE inhibitors. Whether bidirectional PVAT-vascular signaling operates similarly in early disease, younger patients, or women is an open question.
 
-### Key Reviews (2017):
+---
 
-| Paper | Journal | Strategic Purpose |
+## Phase 2: Conceptual Framework Building (2017 Reviews)
+
+Five reviews in a single year, across 4 journals. Their function was to synthesize the group's biological findings into a conceptual framework and identify the field's unresolved problems — problems their upcoming work would address.
+
+| Paper | Journal | Core Contribution |
 |---|---|---|
-| "Epicardial AT in cardiac biology" | J Physiology | Comprehensive EAT biology compendium — positions Antoniades as the authority |
-| "Is fat always bad?" | Cardiovasc Research | Challenges "fat=bad" dogma; argues for protective roles → supports FAI concept (inflammation changes fat FROM protective TO harmful) |
-| "Dysfunctional adipose tissue" | Br J Pharmacol | Introduces "reprogrammable" concept → PVAT as therapeutic target |
-| "PVAT as regulator of vascular disease" | Br J Pharmacol | Lists every PVAT-derived molecule; maps the entire pharmacology space with Oxford at center |
-| "Unravelling the adiponectin paradox" | Br J Pharmacol | Resolves the paradox using their bidirectional signaling model — implies the entire field was confused because it lacked their insight |
+| "Epicardial AT in cardiac biology" | J Physiol (5.5) | Comprehensive EAT biology reference: embryology, thermogenesis, mechanical buffering, paracrine signaling |
+| "Is fat always bad?" | Cardiovasc Res (10.2) | Argued fat has protective roles that become pathological through "reprogramming" — the conceptual basis for FAI |
+| "Dysfunctional adipose tissue" | BJP (7.3) | Introduced the concept that adipose dysfunction is a reprogrammable therapeutic target |
+| "PVAT as regulator of vascular disease" | BJP (7.3) | Mapped the full PVAT secretome and signaling pathways; identified therapeutic targets |
+| "Unravelling the adiponectin paradox" | BJP (7.3) | Resolved why high adiponectin associates with poor outcomes in HF: it's a compensatory response to vascular injury, not a cause |
 
-**The competitive framing in "Imaging residual inflammatory cardiovascular risk" (2019 EHJ, with John Deanfield)** was even more explicit. Figure 7 rates ALL approaches to detecting coronary inflammation: FAI gets maximum scores. PET-CT is acknowledged but dismissed as impractical. hsCRP gets poor specificity scores (c-statistic 0.61-0.65). High-risk plaque features are "indirect." This is a devastating competitive positioning document disguised as a review.
+The adiponectin paradox resolution is worth understanding: epidemiological studies found elevated adiponectin in patients with worse cardiovascular outcomes, contradicting its known protective biology. The Oxford group's answer — that vascular oxidative stress upregulates PVAT adiponectin as a defense mechanism (inside-to-outside signaling) — means elevated adiponectin in sick patients is a marker of the rescue response, not the disease itself. This is a clean example of mechanistic biology resolving an epidemiological contradiction.
+
+These reviews also systematically evaluated competing approaches. EAT volume studies (Framingham, MESA, Rotterdam) had produced inconsistent results, partly because they treated EAT as a homogeneous depot. PET-CT could detect tissue inflammation but with poor spatial resolution and limited availability. Circulating biomarkers (hsCRP, IL-6) lacked vessel-specificity. These were real limitations of existing methods, identified clearly.
 
 ---
 
-## Phase 3: The FAI Breakthrough and Clinical Validation (2017–2018)
+## Phase 3: FAI — From Biology to Imaging (2017–2018)
 
-### Paper 10: Antonopoulos et al. 2017 — Science Translational Medicine (IF 17.1, ~872 citations)
-**"Detecting human coronary inflammation by imaging perivascular fat" — THE FOUNDATIONAL PAPER**
+### Antonopoulos et al. 2017 — Science Translational Medicine | ~872 citations
 
-**Multi-arm study design:**
-- **Arm 1:** n=453 CABG patients (histological validation — PVAT biopsies with matched CT)
-- **Arm 2:** n=37 CABG patients (coculture experiments showing bidirectional signaling)
-- **Arm 3:** n=273 clinical CTA subjects (in vivo validation — FAI vs. clinical syndromes)
-- Plus mouse models with adipose tissue transplantation
+The conceptual leap: if vascular inflammation changes PVAT adipocyte biology (inhibiting differentiation, reducing lipid accumulation), and CT attenuation depends on the lipid-to-water ratio in tissue, then CT can non-invasively detect vascular inflammation by measuring the attenuation of perivascular fat.
 
-**The key biological insight:** Inflamed coronary arteries release cytokines (TNFα, IL-6) that inhibit lipogenesis in adjacent preadipocytes. This shifts the lipid-to-water balance in PVAT — smaller, less lipid-laden adipocytes → higher CT attenuation (less negative HU). FAI captures this shift.
+**Multi-arm study design — each arm answers a different question:**
+- **Arm 1 (n=453 CABG):** Histological validation — paired tissue biopsies and CT, showing that FAI correlates with adipocyte size, differentiation markers (PPARγ, CEBPA, FABP4), and macrophage infiltration
+- **Arm 2 (n=37 CABG):** Coculture proof — aortic tissue pre-treated with angiotensin II (7 days) then cocultured with PVAT preadipocytes inhibits their lipid accumulation. TNFα + IL-6 + IFNγ directly suppress adipocyte differentiation genes.
+- **Arm 3 (n=273 CTA subjects):** Clinical validation — FAI higher around culprit lesions in ACS, decreases on follow-up after stenting. FAI predicts CAD independently of calcium score.
+- **PET sub-study (n=40):** ¹⁸F-FDG uptake in subcutaneous AT correlates with FAI (ρ=0.69, AUC=0.971). Note: this validated in subcutaneous but not epicardial fat — an important distinction.
 
-**Measurement protocol established here:**
-- Attenuation window: -190 to -30 HU (lipid-to-aqueous spectrum)
-- Proximal RCA: 10-50mm from ostium (excludes proximal 10mm to avoid aortic wall artifact)
+**Measurement protocol defined here:**
+- Attenuation window: -190 to -30 HU
+- PVAT = adipose tissue within radial distance equal to vessel diameter from outer wall
+- RCA: 10-50mm from ostium (excludes proximal 10mm to avoid aortic wall artifact)
 - LAD and LCx: proximal 40mm
-- PVAT defined as adipose tissue within radial distance = vessel diameter from outer wall
-- Analyzed in 3D concentric layers radiating outward from the vessel
+- Analyzed in 3D concentric 1mm layers radiating outward
 
-**Cross-sectional clinical validation:** FAI was higher around culprit lesions in ACS patients vs. stable angina. FAI changed dynamically — decreased on follow-up CTA after stenting. This "dynamism" is both a strength (sensitive to treatment) and a weakness (not stable enough for chronic risk assessment — directly motivating FRP).
+**VPCI (Volumetric Perivascular Characterization Index):** A gradient-based metric — the difference between PVAT attenuation and non-PVAT attenuation, normalized by PVAT attenuation. This self-normalizes against systemic metabolic factors because each patient's remote fat serves as their own reference. VPCI was actually superior to raw FAI for detecting soft (noncalcified) plaques.
 
-**Reproduction difficulty:** The concentric layer analysis with gradient computation requires sophisticated semi-automated segmentation. The methods section describes the pipeline in detail, but the actual software implementation became proprietary (CaRi-Heart/Caristo).
-
----
-
-### Paper 11: Oikonomou et al. 2018 — The Lancet (IF 168.9, ~838 citations)
-**"CRISP-CT Study — FAI Predicts Cardiac Mortality"**
-
-**Study design (smart choices):**
-- **Two geographically distinct cohorts**: Erlangen, Germany (n=1,872, 2005-2009) and Cleveland Clinic, USA (n=2,040, 2008-2016)
-- **5 different CT scanner models** across sites — any signal surviving this heterogeneity is robust
-- **Different treatment eras** — significant differences in statin, antiplatelet, ACEi/ARB, beta-blocker use between cohorts
-- **Consecutive patients** referred for clinically indicated CCTA — mirrors real-world population
-- All images sent to single core lab (OXACCT, Oxford) for blinded analysis
-
-**Key statistical results:**
-- Per-SD increase in RCA FAI: HR 2.15 (1.33-3.48) derivation, HR 2.06 (1.50-2.83) validation for cardiac mortality
-- FAI ≥ -70.1 HU: HR 9.04 (3.35-24.40) derivation, HR 5.62 (2.90-10.88) validation for cardiac mortality
-- C-statistic improvement: 0.913 → 0.962 (Δ=0.049, P=0.005) derivation; 0.763 → 0.838 (Δ=0.075, P=0.007) validation
-- NRI for cardiac mortality: 0.94 (derivation), 0.72 (validation) — very strong reclassification
-- Technical scan parameters explained only ~5% of FAI variation (R²≈0.05)
-- Intra/inter-observer ICC: 0.987 / 0.980
-
-**Clever design choice — the J-shaped relationship:** Fractional polynomial modeling revealed a non-linear (J-shaped) relationship between FAI and mortality. This justified dichotomization at -70.1 HU using Youden's J statistic. The J-shape also has biological plausibility: extremely negative FAI (very fatty PVAT) might indicate lipomatous metaplasia (also pathological).
-
-**What the paper does NOT say clearly enough:**
-1. **Post-hoc design**: The -70.1 HU cutoff is data-derived. It needed prospective validation (which took until 2024 ORFAN).
-2. **Treatment confounding**: Among patients who started statins/aspirin after CCTA, FAI lost prognostic value (HR 2.85, P=0.25). They spin this as "modifiable risk" but it equally means FAI captures risk that treatment already addresses.
-3. **Low event rates**: Only 26 cardiac deaths in the German derivation cohort (1.4%). Very few events driving large hazard ratios.
-4. **No comparison with hsCRP or any blood biomarker** — a significant gap they never filled in this paper.
-5. **Commercial conflict**: Authors are patent holders and Caristo founders. Disclosed but not discussed as a limitation.
+**What was demonstrated vs. what was inferred:**
+- Demonstrated: inflammation inhibits preadipocyte differentiation, FAI correlates with tissue biology, FAI differs between diseased and normal vessels
+- Inferred but not yet proven: that the CT signal specifically reflects inflammation (vs. other processes that alter adipocyte biology), and that FAI changes predict future events
 
 ---
 
-## Phase 4: Expansion and Moat-Building (2019)
+### Oikonomou et al. 2018 — The Lancet (CRISP-CT) | n=3,912 | ~838 citations
 
-### Paper 14: Oikonomou et al. 2019 — European Heart Journal (IF 39.3, ~400 citations)
-**"Fat Radiomic Profile (FRP) — Machine Learning Radiotranscriptomics"**
+Post-hoc analysis of two prospective cohorts: Erlangen (n=1,872, 2005-2009) and Cleveland Clinic (n=2,040, 2008-2016). Five different CT scanners. All images analyzed blindly at one core lab (OXACCT, Oxford).
 
-**Why FRP exists:** FAI captures acute inflammation (lipid/water shift). But PVAT also undergoes chronic structural changes — fibrosis and microvascular remodeling — that are irreversible and potentially more prognostic. Texture/radiomic features can detect these changes where mean attenuation cannot.
+**Key results:**
+| Metric | Derivation | Validation |
+|---|---|---|
+| Per-SD FAI (RCA), HR cardiac mortality | 2.15 (1.33-3.48) | 2.06 (1.50-2.83) |
+| FAI ≥ -70.1 HU, HR cardiac mortality | 9.04 (3.35-24.40) | 5.62 (2.90-10.88) |
+| C-statistic improvement | 0.913 → 0.962 | 0.763 → 0.838 |
+| NRI for cardiac mortality | 0.94 | 0.72 |
+| Technical parameters R² for FAI | ~0.05 | — |
+| ICC (intra/inter-observer) | 0.987 / 0.980 | — |
 
-**Machine learning pipeline:**
-- 3D Slicer + PyRadiomics library: 843 radiomic features per vessel segment (shape, first-order, higher-order texture, wavelet transforms)
-- 1,686 features per patient (RCA + left coronary system)
-- Stability filtering: ICC ≥ 0.9 → 1,391 stable features (82%)
-- Correlation filtering: |Spearman ρ| ≥ 0.9 → 335 independent features
-- Recursive feature elimination with random forest → 64 optimal features
-- Case-control nested design: 101 MACE patients matched 1:1 with 101 controls
-- 80/20 train/validation split with repeated 5-fold cross-validation
+**The J-shaped relationship** is noteworthy: fractional polynomial modeling showed non-linear FAI-mortality association. Extremely negative FAI (very fatty PVAT) may also be pathological — potentially reflecting lipomatous metaplasia or loss of normal adipocyte architecture. This motivated dichotomization at -70.1 HU (Youden's J statistic) rather than treating FAI as purely linear.
+
+**Limitations to understand:**
+1. The -70.1 HU cutoff was derived from this data and needed prospective validation (came in 2024 ORFAN)
+2. Only 26 cardiac deaths in the German derivation cohort (1.4%) — large hazard ratios from few events
+3. Among patients who started statins/aspirin after CCTA, FAI lost prognostic significance (HR 2.85, P=0.25). This could mean the risk is "treatable" — or that FAI captures the same risk traditional therapy already addresses
+4. No comparison with hsCRP or any blood biomarker
+5. FAI's dynamism (it changes after ACS and with treatment) is both a strength and a limitation — it may be too labile for stable risk assessment
+
+---
+
+## Phase 4: Extending the Science (2019)
+
+### FRP — Oikonomou et al. 2019, European Heart Journal | ~400 citations
+
+FAI captures acute inflammation (the lipid/water shift in PVAT). But PVAT also undergoes chronic structural changes — fibrosis and microvascular remodeling — that are irreversible. Mean attenuation cannot detect these. Texture analysis can.
+
+**Radiotranscriptomic approach (Study 1, n=167 surgery patients):**
+Paired CT radiomic features with tissue gene expression for three biological processes:
+- TNFα → inflammation
+- COL1A1 → fibrosis
+- CD31 → vascularity
+
+Result: Mean attenuation (≈FAI) was the best CT predictor of TNFα. But higher-order texture features matched or exceeded it for COL1A1 and CD31. Adding radiomics significantly improved detection of fibrosis (P=0.005) and vascularity (P=0.015) but NOT inflammation (P=0.35). This directly proves that texture features capture biology invisible to FAI.
+
+**ML pipeline:**
+- 843 radiomic features per vessel × 2 vessels = 1,686 features/patient (PyRadiomics via 3D Slicer)
+- Stability filtering (ICC ≥ 0.9): 1,391 features retained
+- Correlation filtering (|Spearman ρ| ≥ 0.9): 335 independent features
+- Recursive feature elimination + random forest: 64 optimal features
+- Case-control training: 101 MACE cases matched 1:1 with 101 controls
 - External AUC: 0.774 (0.622-0.926)
 
-**The radiotranscriptomic validation (Study 1):** 167 cardiac surgery patients with paired CT radiomics + tissue gene expression (TNFα, COL1A1, CD31). Manhattan plots showed:
-- Mean attenuation (≈FAI) was the best predictor of TNFα (inflammation) — no surprise
-- **Higher-order texture features matched or exceeded FAI for COL1A1 (fibrosis) and CD31 (vascularity)**
-- Adding radiomic texture to FAI significantly improved detection of fibrosis (P-F-change=0.005) and vascularity (P=0.015), but NOT inflammation (P=0.35)
-- **This proves FRP captures biology that FAI misses**
-
-**Clinical effect sizes:**
-- FRP ≥ 0.63: adjusted HR 10.84 (5.06-23.22, P<0.001) for MACE
-- FRP+ / HRP+: adjusted HR 43.33 (9.14-205.48, P<0.001) — extraordinary
-- FRP+ / HRP- (high FRP without visible high-risk plaque): HR 32.44 (7.00-150.38, P<0.001) — identifies "invisible risk"
+**Clinical validation (SCOT-HEART, n=1,575):**
+- FRP ≥ 0.63: adjusted HR 10.84 (5.06-23.22) for MACE
+- FRP+ with high-risk plaque features: HR 43.33 (9.14-205.48)
+- FRP+ without high-risk plaque: HR 32.44 (7.00-150.38) — identifies risk with no visible plaque pathology
 - FRP did NOT predict non-cardiac mortality (HR 0.58, P=0.28) — cardiac-specific
-- Adding FRP improved AUC by 0.126 (P<0.001) over traditional model with FAI
 
-**Unacknowledged limitations:**
-- Case-control design with only 101 events is small for training a random forest on 335 features. Overfitting risk is real despite cross-validation.
-- The 64-feature model is essentially a black box — clinical interpretability is limited
-- SCOT-HEART validation had only 34 MACE events (1 cardiac death) — low statistical power for hard endpoints
-- The radiotranscriptomic pairing is cross-sectional (surgery patients ≠ CCTA patients). The tissue was from thoracic fat at the surgical incision site, not pericoronary fat specifically.
+**Temporal dissociation between FAI and FRP:** In AMI patients with serial CT, FAI was elevated acutely around culprit lesions and decreased at 6-month follow-up (dynamic). FRP was elevated at both timepoints (stable/irreversible). This implies FAI tracks active inflammation while FRP tracks cumulative structural damage — complementary, not redundant.
+
+**Limitations:** 101 events for training a 335-feature model is small. SCOT-HEART had only 34 MACE events (1 cardiac death). The radiotranscriptomic tissue was thoracic fat from the surgical incision, not pericoronary fat. The 64-feature random forest is not interpretable at the individual feature level.
 
 ---
 
-### Paper 15: Elnabawi/Antoniades 2019 — JAMA Cardiology (IF 14.8, ~197 citations)
-**"Biologic Therapy Reduces Coronary Inflammation in Psoriasis"**
+### Psoriasis as a Model — Elnabawi/Antoniades 2019, JAMA Cardiology | ~197 citations
 
-**Why psoriasis is genius as a model:**
-1. Chronic systemic inflammatory disease with known elevated CV risk — natural experiment
-2. Low traditional CV risk factors in this population — isolates the inflammatory signal from confounders
-3. Built-in control group (patients who chose not to start biologics)
-4. PASI score provides an objective measure of systemic inflammation
-5. Biologics have specific cytokine targets (anti-TNF, anti-IL-12/23, anti-IL-17) — mechanistic dissection
+n=134 patients with moderate-to-severe psoriasis: 82 on biologics (anti-TNF, anti-IL-12/23, anti-IL-17), 52 untreated controls. CCTA at baseline and 1 year.
 
-**Results:** FAI decreased from -71.22 to -76.09 HU in treatment group (P<0.001); no change in controls (-71.98 to -72.66, P=0.39). Effect seen with both anti-TNF and anti-IL pathways.
+Why this population is well-suited: chronic systemic inflammation with elevated CV risk, low traditional CV risk factors (isolates the inflammatory signal), built-in control group, measurable treatment response via PASI score, and specific cytokine-targeted therapies enabling mechanistic dissection.
 
-**Strategic importance:** This is the first paper positioning FAI as a **treatment-response biomarker** — not just diagnostic/prognostic. This is the use case that makes FAI valuable for pharmaceutical trials: you can now measure coronary inflammation response to anti-inflammatory drugs non-invasively. This has enormous commercial implications for drug development partnerships.
+FAI decreased from -71.22 to -76.09 HU in the treatment group (P<0.001); no change in controls (-71.98 to -72.66, P=0.39). Effect present with both anti-TNF and anti-IL pathways.
+
+This established FAI as a **treatment-response biomarker** — it can detect pharmacologically-induced changes in coronary inflammation non-invasively. This has applications in clinical trials for anti-inflammatory drugs.
 
 ---
 
-### Paper 20: Akoumianakis et al. 2019 — Science Translational Medicine (IF 17.1)
-**"WNT5A in Obesity-Mediated Vascular Redox Signaling"**
+### WNT5A — Akoumianakis et al. 2019, Science Translational Medicine
 
-**Scale:** n=1,004 patients (their largest tissue study). Identified WNT5A as a PVAT-derived adipokine that activates vascular NADPH oxidase via USP17/RAC1 pathway in obesity. WNT5A independently predicted calcified plaque progression.
+Their largest tissue study (n=1,004). Profiled all 19 Wnt ligands across 3 adipose depots and identified WNT5A as the most highly expressed in PVAT. Complete signaling pathway mapped: WNT5A → FZD2 receptor → USP17 (novel finding) → RAC1 activation → NOX1/2 assembly → superoxide generation.
 
-**Strategic importance:** Diversifies the molecular biology portfolio beyond adiponectin. Creates a second druggable pathway (WNT5A/USP17/RAC1) distinct from the adiponectin/PPARγ axis. This connects to the 2023 miR-92a-3p paper, which showed miR-92a-3p suppresses WNT5A — closing the loop between the two pathways.
+The USP17 deubiquitinase link was entirely new to vascular biology. Dose-dependent pathway specificity: physiological WNT5A (100 ng/mL) activates non-canonical PCP pathway; only supraphysiological doses activate canonical Wnt/β-catenin. This resolves prior contradictions about WNT5A being pro- vs. anti-atherogenic.
 
----
-
-## Phase 5: Clinical Translation and Commercialization (2020–2023)
-
-### The Standardization Problem and FAI-Score (2021)
-**Oikonomou et al. 2021 — Cardiovascular Research**
-
-The CRISP-CT cutoff of -70.1 HU was a one-size-fits-all threshold that ignores:
-- Scanner manufacturer and model (tube voltage, reconstruction kernel)
-- Patient demographics (age, sex — FAI increases with age)
-- Anatomical variation (RCA has different normal values than LAD or LCx)
-
-**Solution: FAI-Score** — raw FAI transformed through age- and sex-specific nomograms, adjusted for technical scan parameters and biological factors. Output as population-referenced percentiles.
-
-**The CaRi-Heart pipeline:**
-1. Deep learning network segments epicardial adipose tissue and perivascular space
-2. **Human quality control step** — trained analyst checks and edits segmentations (not fully automated)
-3. Raw FAI computed for proximal segments of RCA, LAD, LCx
-4. FAI-Score calculated (adjusted for confounders)
-5. CaRi-Heart Risk generated: 8-year fatal cardiac event probability integrating FAI-Score + clinical risk factors + plaque burden
-
-**Clinical accuracy:** AUC 0.809 (95% CI 0.805-0.814) for 8-year cardiac mortality. Virtually no overfitting (optimism-corrected AUC = 0.809).
-
-**Strategic note:** The paper presents CaRi-Heart as an already CE-marked commercial product. It is simultaneously a scientific validation paper and a product specification document. All 3,912 scans were analyzed by one core lab (OXACCT, Oxford) — reproducibility in community practice is untested.
+Clinically, plasma WNT5A independently associated with CAD and predicted coronary calcification progression over 3-5 years. This diversified the group's molecular portfolio beyond adiponectin and created a second potentially druggable pathway. The 2023 miR-92a-3p paper later showed that miR-92a-3p suppresses WNT5A — connecting the two pathways.
 
 ---
 
-### Deep Learning for EAT (2023)
-**West et al. 2023 — JACC Cardiovascular Imaging (IF 12.8, ~77 citations)**
+## Phase 5: Clinical Translation (2020–2023)
 
-**Training:** 2,200 ORFAN CCTAs manually segmented + 3 iterative feedback rounds of 200 each. 3D Residual-U-Net architecture. Processing time: 12.4 seconds (vs. 18 minutes manual).
+### FAI + High-Risk Plaque Interaction (2020, JACC)
 
-**Positioned as complementary to FAI, not replacement:** EAT volume predicts all-cause mortality (including non-cardiac) — a broader metabolic marker. FAI predicts cardiac-specific events. Together they capture different risk dimensions.
+Re-analysis of CRISP-CT data in a 2×2 stratification: FAI (high/low at -70.1 HU) × high-risk plaque features (present/absent).
 
-**ORFAN infrastructure revealed:** 75,000 UK patients, expanding to 250,000 internationally across 17 NHS Trusts. This is a data moat that cannot be replicated quickly.
+The key finding: **HRP without elevated FAI carries no excess cardiac mortality risk** (HR 1.00, P=0.98). But high FAI without HRP carries substantial risk (HR 5.62, P<0.001). The highest risk is when both are present (HR 7.29, P<0.001).
 
----
+This implies that high-risk plaque morphology without active inflammation may represent stable remodeling, while inflammation — even without visible plaque pathology — identifies patients at risk. This challenges the plaque-centric paradigm in CCTA interpretation.
 
-### ESC Consensus Statement (2023)
-**Antoniades et al. 2023 — European Heart Journal**
+Limitation: post-hoc analysis of the same dataset, with few events per subgroup (74 cardiac deaths split across 4 cells).
 
-**What ESC endorsed:**
-- FAI-Score as "the only regulatory-cleared metric for coronary inflammation assessment"
-- Their PVAT definition verbatim
-- CaRi-Heart v2.5 named explicitly
-- Age/sex-specific percentile nomograms
+### FAI-Score Standardization (2021, Cardiovascular Research)
+
+Raw FAI depends on scanner, tube voltage, contrast protocol, patient age/sex, and specific artery. FAI-Score transforms raw FAI through age/sex-specific nomograms adjusted for technical parameters. Output as population-referenced percentiles (0-100 scale).
+
+The CaRi-Heart device pipeline:
+1. Deep learning segments EAT and perivascular space
+2. Human analyst reviews and edits segmentations (not fully automated)
+3. Raw FAI computed for proximal RCA, LAD, LCx
+4. FAI-Score calculated (adjusted)
+5. CaRi-Heart Risk: 8-year cardiac mortality probability integrating FAI-Score + clinical risk factors + plaque burden
+
+AUC 0.809 for 8-year cardiac mortality. Optimism-corrected AUC = 0.809 (no overfitting detected). Trained on US cohort, externally validated in European cohort.
+
+Important: all 3,912 scans analyzed by one core lab (OXACCT). Real-world reproducibility when community sites use the device is untested.
+
+### Deep Learning EAT (2023, JACC Cardiovascular Imaging)
+
+3D Residual-U-Net trained on 2,800 ORFAN CCTAs. Processing: 12.4 seconds vs. 18 minutes manual. Positioned as complementary to FAI: EAT volume predicts all-cause mortality including non-cardiac (metabolic marker), while FAI predicts cardiac-specific events. Different risk dimensions from the same scan.
+
+ORFAN infrastructure: 75,000 UK patients across 17 NHS Trusts, expanding to 250,000 internationally.
+
+### ESC Consensus Statement (2023, European Heart Journal)
+
+The ESC Working Group endorsed:
+- FAI-Score as the regulatory-cleared metric for coronary inflammation
+- The Oxford PVAT definition (radial distance = vessel diameter from outer wall)
+- CaRi-Heart v2.5 by name
 - 75th, 90th, 95th percentile cutoffs for risk stratification
 
-**Gaps they identified (= their upcoming publications):**
-1. Need RCTs of anti-inflammatory therapy guided by FAI — their next study
-2. Per-lesion FAI not yet validated — future product feature
-3. Photon-counting CT requires recalibration — their 2025 FAI-Score robustness paper
-4. Non-coronary PVAT analysis not yet clinical — expansion opportunity
+Gaps identified by the consensus: (1) no RCTs of FAI-guided therapy, (2) per-lesion FAI not validated, (3) photon-counting CT needs recalibration, (4) non-coronary PVAT not validated, (5) no PVAT-specific drug delivery.
+
+### miR-92a-3p (2023, JACC)
+
+n>1,200 across 6 study arms (GWAS, animal models, cell culture, clinical outcomes). Identified miR-92a-3p as an EAT-derived microRNA that reduces myocardial NADPH oxidase by suppressing WNT5A/RAC1. This extended the PVAT-vascular paracrine model to include miRNA mediators — a new mechanistic layer connecting back to the WNT5A pathway.
 
 ---
 
-## Phase 6: Large-Scale Validation and Market Lock-In (2024–2026)
+## Phase 6: Population-Scale Validation (2024–2026)
 
-### Paper 31: Chan et al. 2024 — The Lancet (IF 168.9)
-**"ORFAN Study — 40,091 Patients"**
+### ORFAN Study — Chan et al. 2024, The Lancet | n=40,091
 
-**The definitive validation:**
-- **Cohort A:** 40,091 consecutive patients from 8 NHS hospitals (2010-2021). Median follow-up 2.7 years.
-- **Cohort B:** 3,393 nested from 2 hospitals with longest follow-up (7.7 years). Used for AI-Risk validation.
-- Events: 4,307 MACE, 1,754 cardiac deaths, 5,255 all-cause deaths.
+**Cohort A:** 40,091 consecutive patients from 8 NHS hospitals (2010-2021), median follow-up 2.7 years. **Cohort B:** 3,393 nested patients with 7.7-year follow-up for AI-Risk validation. Events: 4,307 MACE, 1,754 cardiac deaths.
 
-**The headline numbers:**
-- LAD FAI-Score Q4 vs. Q1: HR 20.20 (95% CI 11.49-35.53) for cardiac mortality — among the strongest prognostic signals for any cardiac biomarker
-- 3 inflamed arteries vs. 0: HR 29.8 (13.9-63.9) for cardiac mortality
-- AI-Risk very high vs. low/medium: HR 6.75 (5.17-8.82) for cardiac mortality
-- AUC for cardiac mortality: QRISK3 alone = 0.784, + CAD-RADS 2.0 = 0.789 (P=0.38, no improvement), + AI-Risk = 0.854 (P=7.7×10⁻⁷)
-- **Adding coronary stenosis grading to QRISK3 does NOT improve prediction. Adding FAI-Score/AI-Risk does.** This is the paper's nuclear finding.
+**Key results:**
 
-**The market argument:**
-- 81.1% of patients (32,533) had NO obstructive CAD
-- These patients accounted for 66.3% of cardiac deaths
-- Current practice: sent home with no further workup
-- FAI-Score identifies the high-risk minority within this "reassured" population
-- AI-Risk changed management in 45% of patients in real-world NHS survey (n=744)
-- Treatment changes: 24% new statin, 13% statin dose increase, 8% additional therapies (colchicine 2.7%, aspirin 2.4%)
+| Measure | HR (95% CI) |
+|---|---|
+| LAD FAI-Score Q4 vs Q1, cardiac mortality | 20.20 (11.49-35.53) |
+| 3 inflamed arteries vs 0, cardiac mortality | 29.8 (13.9-63.9) |
+| AI-Risk very high vs low/medium, cardiac mortality | 6.75 (5.17-8.82) |
 
-**Honest calibration admission:** AI-Risk overestimates events in patients WITH obstructive CAD — because CCTA triggers interventions that modify outcomes. Well-calibrated in non-obstructive population.
+Discrimination: QRISK3 alone AUC=0.784 → +CAD-RADS 2.0: 0.789 (P=0.38, no improvement) → +AI-Risk: 0.854 (P=7.7×10⁻⁷). Adding stenosis grading to traditional risk scores did not improve prediction. Adding inflammation assessment did.
 
----
+The central epidemiological finding: 81.1% of patients had no obstructive CAD, yet this group accounted for 66.3% of cardiac deaths. Current practice sends these patients home reassured. FAI-Score identifies the high-risk subset within them.
+
+Real-world NHS survey (n=744): AI-Risk changed management in 45% — 24% new statin, 13% statin dose increase, 8% additional therapies.
+
+Calibration: well-calibrated in non-obstructive CAD. Overestimates risk in obstructive CAD (because CCTA triggers interventions). Median follow-up of 2.7 years in Cohort A is short for an 8-year prediction model — the model extrapolates.
 
 ### Cost-Effectiveness (2025)
-**Markov decision-analytic model**, 3,393 patients. AI-guided strategy cost-effective at ICER £1,371-3,244 per QALY. Predicted 11% reduction in MI, 12% reduction in cardiac death. This is the health economics paper that NHS commissioners need.
+
+Markov model, 3,393 patients. AI-guided strategy: ICER £1,371-3,244/QALY. Predicted 11% MI reduction, 12% cardiac death reduction. 100% of probabilistic sensitivity analyses below the NICE £20,000 threshold. Designed for NICE technology appraisal submission.
 
 ### FAI-Score Robustness (2025)
-Demonstrated FAI-Score stability across different CT scanners, acquisition protocols, reconstruction kernels. Critical for multi-center deployment and regulatory submissions.
+
+n=7,822 CCTAs from one ORFAN site. FAI-Score stable within 0.5 units (on 0-100 scale) across tube voltage, tube current, slice thickness, and scan phase. Validates the standardization pipeline. Contrast protocol variations (injection rate, iodine concentration, scan timing) not explicitly tested.
 
 ---
 
-## The Patent: What It Covers and What It Doesn't
+## The Patent
 
-### US 10,695,023 B2 (Filed 2015, Granted June 30, 2020)
+### US 10,695,023 B2 | Filed 2015, Granted 2020
 
-**4 Independent Claims:**
+**4 independent claims**, all requiring: CT data → concentric layer analysis from outer vessel wall → radiodensity quantification per layer → comparison to baseline → administering therapy.
 
-| Claim | Scope |
+| Claim | Specific method |
 |---|---|
-| **Claim 1** (broadest) | Method for detecting vascular inflammation by CT volumetric characterization of PVAT using concentric layers from outer vessel wall + quantifying radiodensity + comparing to baseline + administering therapy |
-| **Claim 14** | VPCI-i method: fold change plot of radiodensity vs. distance → AUC calculation |
-| **Claim 21** | VPCI method: subtracting non-PVAT from PVAT radiodensity |
-| **Claim 37** | Treatment guidance method: CT scan → concentric layer analysis → therapy administration |
+| 1 (broadest) | Concentric layer volumetric characterization + therapy |
+| 14 | VPCI-i: fold change plot → AUC calculation |
+| 21 | VPCI: PVAT minus non-PVAT radiodensity |
+| 37 | Treatment guidance: CT → concentric layers → therapy |
 
-**Key dependent claims:**
-- Claim 4: Specifies 4cm segment of proximal RCA
-- Claims 5-6: Covers RCA, LAD, LCx, aorta, carotid, femoral arteries
-- Claim 7: 1mm-thick concentric layers
-- Claims 8-10: End distance definitions (1× diameter from vessel wall, or specific mm distances)
+**Key dependent claims:** 4cm proximal RCA segment (claim 4), specific arteries including non-coronary (claims 5-6), 1mm layers (claim 7), various end-distance and baseline definitions (claims 8-13).
 
-**What is NOT covered (potential openings for competitors):**
-1. **Simple mean FAI** (single average attenuation without concentric layer analysis) — the patent requires concentric layers + gradient. A simple volumetric mean might not infringe.
-2. **Non-CT imaging** (MRI, ultrasound, PET) — patent is CT-specific
-3. **Pure diagnostic without therapy administration** — every independent claim includes "administering therapy based on results." Research-only use without treatment guidance may not infringe.
-4. **Machine learning-based radiomic approaches** (FRP) — not claimed in this patent. Radiomics/texture analysis are later developments.
-5. **FAI-Score calculation** (nomogram standardization, percentile conversion) — not in this patent
-6. **Photon-counting CT** — may require different attenuation calibration not covered by patent's HU framework
+**What the patent does NOT cover:**
+- Simple mean attenuation without concentric layer analysis
+- Non-CT modalities (MRI, ultrasound, PET)
+- Pure research/diagnostic use without the "administering therapy" step
+- Machine learning radiomic approaches (FRP)
+- FAI-Score nomogram/percentile calculation
+- Photon-counting CT material decomposition approaches
 
-**Related applications:** PCT/GB2017/053262, GB2018/1818049.7, GR20180100490, GR20180100510
+Related applications: PCT/GB2017/053262, GB2018/1818049.7, GR20180100490, GR20180100510
 
 ---
 
-## Caristo Diagnostics: The Commercial Arm
+## Caristo Diagnostics
 
 | Product | Function | Status |
 |---|---|---|
-| **CaRi-Heart** (FAI-Score + AI-Risk) | Coronary inflammation from routine CCTA | CE Mark (MDR), UKCA, Australia. **Investigational in US (FDA pending)** |
+| **CaRi-Heart** (FAI-Score + AI-Risk) | Coronary inflammation from routine CCTA | CE Mark (MDR), UKCA, Australia. Investigational in US. |
 | **CaRi-Plaque** | Automated plaque + stenosis quantification | CE Mark, UKCA, **FDA 510(k) cleared** (K242240, 2025) |
-| **AI-Risk Classifier** | Integrated cardiac risk score | Part of CaRi-Heart platform |
+| **AI-Risk** | Integrated 8-year cardiac risk score | Part of CaRi-Heart platform |
 
-**Founders:** Charalambos Antoniades, Cheerag Shirodaria, Keith Channon, Stefan Neubauer
-**Data infrastructure:** ORFAN registry (75,000+ UK patients, expanding to 250,000 internationally)
+Founders: Antoniades, Shirodaria, Channon, Neubauer. Data infrastructure: ORFAN (75,000+ UK, expanding to 250,000 internationally).
 
----
-
-## Their Real Weaknesses — Where They Can Be Beaten
-
-### 1. The Human Tissue Moat Is Their Strength AND Their Blind Spot
-All biology comes from CABG patients: advanced CAD, predominantly male (83%), nearly all on statins, mean age ~65. The bidirectional signaling model has never been tested in:
-- Early/subclinical atherosclerosis
-- Young patients
-- Women (grossly underrepresented)
-- Non-surgical populations
-- Different ethnic/racial groups (almost all European-descent cohorts)
-
-**Opportunity:** A competitor with access to diverse, non-surgical tissue (e.g., autopsy studies, transplant tissue, biopsy from catheterization procedures) could show that the Oxford PVAT biology does not generalize. Or — more constructively — could establish the biology in populations they've neglected.
-
-### 2. The CaRi-Heart Black Box Problem
-The FAI-Score and AI-Risk computations are proprietary. The 2021 standardization paper describes the concept (nomograms + technical adjustment) but the actual algorithm is not published. Independent groups cannot reproduce the FAI-Score transformation. This is both a business strength (lock-in) and a scientific weakness (not independently verifiable).
-
-**Opportunity:** An open-source, fully transparent PVAT analysis pipeline — with published code, open datasets, and reproducible results — would be scientifically superior and could undermine the proprietary approach. Particularly if combined with prospective validation.
-
-### 3. No Randomized Controlled Trial Evidence
-All FAI evidence is observational. The ESC consensus itself lists this as Gap #1. There is no published RCT showing that FAI-guided treatment decisions improve outcomes. The 45% management change in the ORFAN survey is an uncontrolled observation. Without an RCT, the entire clinical utility argument rests on extrapolation from observational associations.
-
-**Opportunity:** Being the first to run a randomized trial of PVAT-guided therapy — even a pilot — would be enormously impactful. The competitor who demonstrates that acting on PVAT imaging information actually improves patient outcomes (rather than just correlating with outcomes) changes the game.
-
-### 4. Measurement Instability and the Standardization Treadmill
-FAI is sensitive to:
-- CT scanner manufacturer and model
-- Tube voltage (80 vs. 100 vs. 120 kVp)
-- Reconstruction kernel (soft tissue vs. sharp)
-- Contrast timing and phase
-- Patient heart rate and motion
-- Slice thickness
-
-They've acknowledged this and built FAI-Score to adjust for it, but this creates a perpetual standardization problem. Every new scanner generation (especially photon-counting CT) requires recalibration. This is a treadmill: their commercial product needs constant updates.
-
-**Opportunity:** A fundamentally different approach — one that is inherently robust to scanner parameters (e.g., ratio-based measurements, dual-energy decomposition, or purely morphological/structural features) — would have a structural advantage.
-
-### 5. The FRP Machine Learning Is Underpowered and Opaque
-The FRP model was trained on a case-control study with 101 events. Random forest on 335 features with 101 events is fragile regardless of cross-validation. The SCOT-HEART validation had only 34 MACE events (1 cardiac death). These are not sufficient to establish a robust predictive model.
-
-**Opportunity:** A competitor with a larger dataset, more events, and a more transparent ML pipeline (ideally with public code and data) could build a superior radiomic predictor. Modern deep learning approaches on large CCTA datasets could learn features that surpass hand-crafted radiomics.
-
-### 6. Neglect of Non-Coronary PVAT
-The Oxford group has focused almost exclusively on pericoronary fat. The ESC consensus acknowledges that aortic, carotid, and femoral PVAT analysis is "not yet validated." But these vascular beds have major clinical importance (stroke, peripheral artery disease, aortic aneurysm).
-
-**Opportunity:** Establishing PVAT imaging biomarkers in non-coronary territories — carotid (stroke risk), aortic (aneurysm progression), femoral (PAD outcomes) — would open new clinical markets that Caristo doesn't currently serve.
-
-### 7. MRI Is Their Blind Spot
-The patent is CT-specific. MRI can characterize adipose tissue composition (fat/water fraction, T1/T2 mapping) without ionizing radiation and with superior soft tissue contrast. Cardiac MRI is increasingly routine. A PVAT analysis approach based on MRI would:
-- Avoid the patent
-- Offer superior tissue characterization
-- Enable serial monitoring without radiation dose concerns
-- Access populations inappropriate for CT (young patients, pregnant women, surveillance cohorts)
-
-The Oxford group has one cardiac MRI paper (2022 UK Biobank pericardial fat) but it was a volume study, not a PVAT quality/inflammation study. They have not demonstrated PVAT inflammation detection by MRI.
-
-### 8. They Don't Own the Biology of PVAT Browning/Beige Fat
-Their molecular work centers on adiponectin/PPARγ (paracrine signaling) and WNT5A/miR-92a-3p (redox signaling). But PVAT can undergo brown-to-white conversion in disease states. Browning/beige fat biology — involving UCP1, β3-adrenergic receptors, thermogenic capacity — is a parallel axis of PVAT biology that they haven't deeply explored. This may be relevant to imaging (brown fat has different CT/MRI characteristics than white fat).
-
-### 9. The Conflict of Interest Issue
-Antoniades and multiple co-authors are founders/shareholders of Caristo Diagnostics. The company funded several studies. All CaRi-Heart analysis goes through their core lab. The ESC consensus that endorses their product was authored by them. This level of vertical integration creates a perception problem. While individually each disclosure is standard, the aggregate picture — inventing the concept, patenting the method, founding the company, running the validation studies, writing the consensus guidelines, and providing health economics data — is unusually complete vertical integration.
-
-**This is not necessarily disqualifying**, but it means independent replication by groups with NO Caristo involvement is especially valuable. Any competitor should emphasize independence from the Caristo ecosystem.
+Note on independence: the entire evidence chain — from biomarker discovery to device development to clinical validation to consensus guidelines to health economics — has been produced by a group with direct financial interest in the product. Each paper discloses this. Independent validation by groups with no Caristo ties would substantially strengthen the evidence.
 
 ---
 
-## What You Need to Learn and Build to Compete
+## Open Questions and Limitations
 
-### Technical Skills Required
+### Scientific
 
-| Domain | Specific Skills | Why |
-|---|---|---|
-| **Vascular biology** | eNOS coupling/uncoupling, NADPH oxidase biochemistry, adipokine signaling, redox biology | The Oxford group grounds everything in mechanism. Any imaging biomarker without a biological explanation is vulnerable to dismissal as a statistical artifact. |
-| **Human tissue processing** | Organ bath vasomotor studies, adipose tissue culture, Western blotting, qRT-PCR, HPLC (biopterins), lucigenin chemiluminescence, DHE microtopography | Their standard toolkit for every biology paper |
-| **Cardiac CT physics** | kVp effects on attenuation, reconstruction kernels, contrast enhancement, ECG gating, motion correction, dual-energy/spectral/photon-counting CT | You must understand the physics deeply enough to know where FAI's measurement vulnerabilities lie |
-| **CT image analysis** | Semi-automated centerline extraction, 3D vessel segmentation, perivascular ROI definition, Hounsfield unit calibration | The nuts and bolts of PVAT quantification |
-| **Machine learning for radiomics** | PyRadiomics feature extraction, dimensionality reduction, random forest/gradient boosting/deep learning classifiers, cross-validation strategies, external validation | To build better predictors than FRP |
-| **Deep learning for segmentation** | U-Net variants, 3D convolutional networks, training data annotation pipelines, feedback learning | To build automated analysis tools |
-| **Survival analysis** | Cox regression, time-dependent C-statistics, NRI/IDI, decision curve analysis, fractional polynomials, competing risks | Every clinical paper uses these methods |
-| **Mendelian randomization** | GWAS interpretation, instrumental variable selection, two-sample MR, pleiotropy tests | The Oxford group uses genetic arguments for causal inference. You should too. |
-| **Health economics** | Markov models, ICER calculation, QALY estimation, decision-analytic modeling | Required for the clinical translation endgame |
-| **Regulatory science** | CE marking (MDR), FDA 510(k)/De Novo pathways, clinical evidence requirements, SaMD classification | If you want to build a product |
+1. **Generalizability of the biology.** All mechanistic work comes from CABG patients: advanced CAD, ~83% male, mean age ~65, nearly all on statins. Does bidirectional PVAT-vascular signaling operate the same way in early subclinical disease? In women? In younger patients? In non-European populations?
 
-### Strategic Priorities for a Competing Group
+2. **Adiponectin diffusion problem.** A 30kDa+ multimeric protein is assumed to traverse the adventitia from PVAT to the vascular media/endothelium. This has never been directly demonstrated. The paracrine mechanism may work through smaller mediators or through exosomes/miRNAs rather than intact adiponectin protein.
 
-**Priority 1: Establish an independent tissue + imaging biobank**
-You need matched tissue and imaging. Without it, you're arguing statistics against their biology. Options:
-- Cardiac catheterization patients (coronary atherectomy tissue + pre-procedure CT)
-- Transplant recipients (explanted hearts + pre-transplant imaging)
-- Autopsy studies (whole-heart histology + postmortem CT)
-- Carotid endarterectomy patients (carotid tissue + CTA — opens the non-coronary territory)
+3. **FAI specificity for inflammation.** The biological model is: inflammation → cytokine-mediated inhibition of preadipocyte differentiation → less lipid accumulation → higher CT attenuation. But other processes also alter adipocyte biology (fibrosis, edema, hemorrhage, metabolic stress). FAI may capture a composite signal, not purely inflammation.
 
-**Priority 2: Build an open-source PVAT analysis pipeline**
-Everything the Oxford group does goes through their proprietary platform. An open-source, reproducible, publicly validated alternative would:
-- Attract academic collaborators worldwide
-- Enable independent replication (or failure to replicate)
-- Create transparency that the proprietary approach cannot match
-- Potentially discover that simpler methods work as well as (or better than) the proprietary ones
+4. **The LCx problem.** LCx is excluded from most analyses due to variable anatomy and small caliber. But LCx disease causes real clinical events. Any PVAT imaging approach limited to RCA and LAD misses a major coronary territory.
 
-**Priority 3: Choose a differentiated technical approach**
-Don't compete head-on with FAI on conventional CT. The patent, the data, and the brand recognition are too strong. Instead:
-- **Photon-counting CT**: New technology that enables material decomposition, virtual monoenergetic images, and multi-parametric tissue characterization. The Oxford group has acknowledged this as an open question.
-- **MRI-based PVAT analysis**: Fat/water fraction, T1/T2 mapping, diffusion characteristics. Completely avoids the patent. Superior tissue characterization.
-- **Dual-energy CT**: Material decomposition for fat/water/calcium separation. Different measurement physics from conventional FAI.
-- **Deep learning on raw CCTA images**: End-to-end learning that bypasses hand-crafted features (FAI, radiomics) entirely. Let the network find what matters.
+5. **PVAT browning/beige fat.** PVAT can undergo brown-to-white conversion in disease states. UCP1, β3-adrenergic receptors, and thermogenic capacity represent a parallel biology that the Oxford group has not deeply explored. Brown vs. white fat has distinct imaging characteristics (CT and MRI).
 
-**Priority 4: Target populations they've neglected**
-- Women (only 17-47% of their cohorts are female)
-- Non-white populations (almost all their cohorts are European-descent)
-- Young patients with early subclinical disease
-- Non-coronary vascular beds (carotid, aortic, femoral, renal)
+### Translational
 
-**Priority 5: Run the first RCT**
-Even a small RCT (n=200-500) showing that PVAT-guided therapy decisions improve some measurable outcome (inflammation reduction, plaque regression, event reduction) would be transformative. The Oxford group has not done this despite 11 years of work.
+6. **No RCT evidence.** The ESC consensus identifies this as Gap #1. All evidence is observational. The 45% management change in ORFAN is uncontrolled — whether FAI-guided decisions actually improve outcomes is unknown.
+
+7. **Proprietary algorithm.** The FAI-to-FAI-Score transformation and the AI-Risk classifier are unpublished. Independent groups cannot reproduce or verify the computations. This is standard for commercial medical devices but limits scientific scrutiny.
+
+8. **Standardization treadmill.** Each new scanner generation (especially photon-counting CT), contrast protocol variation, and reconstruction algorithm potentially requires recalibration. The 2025 robustness data is from one site; multi-site multi-vendor robustness at scale is still developing.
+
+9. **Short follow-up in the largest study.** ORFAN Cohort A median follow-up is 2.7 years for an 8-year prediction model. Substantial extrapolation is required.
 
 ---
 
-## Paper-by-Paper Detailed Catalogue
+## Knowledge Gaps to Fill
 
-### Phase 1: PVAT Biology & Paracrine Signaling (2013–2016)
+To work at the level of this program, the following domains need to be understood in depth — not as a checklist, but as interconnected knowledge:
 
-| # | Year | Title | Journal (IF) | Citations | Type | Key Innovation |
-|---|------|-------|-------------|-----------|------|---------------|
-| 1 | 2013 | Adiponectin/eNOS in Human Vessels | *Circulation* (35.5) | ~321 | Original Research | Bidirectional PVAT-vascular signaling; dual adiponectin mechanism (PI3K/Akt + BH4); quasi-Mendelian randomization with ADIPOQ SNPs. n=677+46 CABG. |
-| 2 | 2014 | Systemic Inflammation and BNP on Adiponectin | *ATVB* (8.4) | — | Original Research | BNP upregulates adipose adiponectin; links HF neurohormones to fat biology. |
-| 3 | 2015 | Adiponectin Links T2D to NADPH Oxidase | *Diabetes* (7.7) | ~241 | Original Research | NADPH oxidase-specific measurement; T2D effect on O2⁻ mediated through adiponectin (Mendelian randomization). n=386+67 CABG. |
-| 4 | 2016 | EAT-Myocardial Redox via PPARγ/Adiponectin | *Circ Res* (20.1) | ~158 | Original Research | Inside-to-outside signaling: myocardial 4-HNE → EAT PPARγ → adiponectin feedback loop. |
+**Vascular biology:** eNOS coupling/uncoupling (BH4 cofactor chemistry), NADPH oxidase isoforms and assembly (NOX1/2/4/5, RAC1/p47phox translocation), adipokine signaling (adiponectin receptors, WNT5A/FZD2 non-canonical pathway, PPARγ regulation), and redox signaling (4-HNE as a diffusible oxidation product). These aren't background — they're the specific molecular mechanisms behind every imaging claim.
 
-### Phase 2: Conceptual Reviews & Frameworks (2017)
+**CT physics of fat imaging:** Why the -190 to -30 HU window works (lipid phase ≈ -190 HU, aqueous phase ≈ -30 HU, fat tissue sits on this spectrum based on adipocyte lipid content). How tube voltage shifts the attenuation curve. How reconstruction kernels affect texture features. How contrast timing affects pericoronary measurements. How partial volume effects at the vessel-fat interface create artifacts.
 
-| # | Year | Title | Journal (IF) | Citations | Type | Strategic Purpose |
-|---|------|-------|-------------|-----------|------|-------------------|
-| 5 | 2017 | EAT in cardiac biology | *J Physiol* (5.5) | ~162 | Review | Comprehensive EAT compendium; establishes authority |
-| 6 | 2017 | Is fat always bad? | *Cardiovasc Res* (10.2) | ~148 | Review | Challenges fat=bad dogma; supports protective PVAT concept |
-| 7 | 2017 | Dysfunctional adipose tissue | *BJP* (7.3) | — | Review | "Reprogrammable target" concept |
-| 8 | 2017 | PVAT as vascular disease regulator | *BJP* (7.3) | ~73 | Review | Complete PVAT pharmacology map; therapeutic targets |
-| 9 | 2017 | Adiponectin paradox | *BJP* (7.3) | ~134 | Review | Resolves paradox using bidirectional signaling model |
+**Radiomics methodology:** Feature types (first-order statistics vs. GLCM/GLRLM/GLSZM texture matrices vs. wavelet transforms), stability analysis (ICC filtering), dimensionality reduction strategies, appropriate sample sizes for feature-to-event ratios, and the critical distinction between radiomic features that correlate with biology vs. features that are measurement artifacts.
 
-### Phase 3: FAI Discovery & CRISP-CT (2017–2018)
+**Survival statistics:** Cox proportional hazards, time-dependent C-statistics, NRI/IDI for censored data, decision curve analysis (net clinical benefit), fractional polynomials for non-linear relationships, and competing risks modeling. Every clinical paper uses these. Understanding them well enough to identify where statistical choices affect conclusions (e.g., the -70.1 HU cutoff was data-derived, not pre-specified).
 
-| # | Year | Title | Journal (IF) | Citations | Type | Key Innovation |
-|---|------|-------|-------------|-----------|------|---------------|
-| **10** | **2017** | **Detecting coronary inflammation by imaging PVAT** | ***Sci Transl Med*** **(17.1)** | **~872** | **Original Research** | **FAI invention.** n=453+37+273. Inflammation → preadipocyte lipid inhibition → CT attenuation gradient. |
-| **11** | **2018** | **CRISP-CT Study** | ***The Lancet*** **(168.9)** | **~838** | **Original Research** | **Clinical validation.** n=3,912 (Erlangen + Cleveland). FAI ≥-70.1 HU: HR 9.04 cardiac mortality. |
-| 12 | 2018 | Adipose tissue in CV health and disease | *Nat Rev Cardiol* (41.7) | ~396 | Review | Definitive review positioning FAI within adipose biology |
-| 13 | 2018 | PVAT and coronary atherosclerosis | *Heart* (5.0) | ~113 | Review | Bridge paper: biology → imaging. Defines PVAT measurement. Dismisses EAT volume. |
+**Mendelian randomization:** The Oxford group uses ADIPOQ SNPs as genetic instruments for causal inference. Understanding instrumental variable assumptions (relevance, independence, exclusion restriction), two-sample MR design, and pleiotropy tests is necessary to evaluate their causal claims.
 
-### Phase 4: Expansion — Radiomics, Psoriasis, WNT5A (2019)
+**Regulatory and health economics:** CE marking (MDR) and FDA 510(k)/De Novo pathways for software as a medical device (SaMD). Markov decision-analytic models, ICER/QALY calculations, NICE technology appraisal requirements. These are the mechanics of clinical translation.
 
-| # | Year | Title | Journal (IF) | Citations | Type | Key Innovation |
-|---|------|-------|-------------|-----------|------|---------------|
-| **14** | **2019** | **Radiotranscriptomic FRP** | ***EHJ*** **(39.3)** | **~400** | **Original Research** | **ML radiomics.** 64-feature random forest. Captures fibrosis + vascularity beyond FAI. HR 10.84 for MACE. Trained on 101+101 case-control. |
-| 15 | 2019 | Biologic therapy in psoriasis | *JAMA Cardiol* (14.8) | ~197 | Original Research | FAI as treatment-response biomarker. n=134 (82 treated, 52 controls). Anti-TNF/anti-IL: FAI -71.2→-76.1 HU. |
-| 16 | 2019 | Imaging residual inflammatory CV risk | *EHJ* (39.3) | ~145 | Review | With Deanfield. Figure 7: competitive matrix dismissing all alternatives to FAI. |
-| 17 | 2019 | Atherosclerosis affecting fat | *JCCT* (3.3) | ~102 | Review | Comprehensive FAI methodology review |
-| 18 | 2019 | CT Assessment of Coronary Inflammation | *ATVB* (8.4) | ~35 | Review | Technical review of CT-based inflammation assessment |
-| 19 | 2019 | Making Sense From Perivascular Attenuation Maps | *JACC Cardiovasc Imaging* (12.8) | ~33 | Editorial | Interpretation guide for perivascular attenuation |
-| 20 | 2019 | WNT5A in Obesity-Mediated Vascular Redox | *Sci Transl Med* (17.1) | — | Original Research | n=1,004. WNT5A/USP17/RAC1 pathway. Second druggable PVAT axis. |
-
-### Phase 5: Clinical Translation & AI (2020–2023)
-
-| # | Year | Title | Journal (IF) | Citations | Type | Key Innovation |
-|---|------|-------|-------------|-----------|------|---------------|
-| 21 | 2020 | FAI + HRP Stratification (CRISP-CT) | *JACC* (21.7) | ~87 | Letter | FAI + high-risk plaque: 7.3× cardiac mortality. Incremental over either alone. |
-| 22 | 2020 | AI Radiomic Guide | *Cardiovasc Res* (10.2) | ~77 | Review | 16-point radiomic quality framework. Positions group as methodological gatekeeper. |
-| 23 | 2021 | FAI in Coronary CTA (Radiology review) | *Radiol Cardiothorac Imaging* (4.5) | ~62 | Review | Practical FAI guide for radiologists |
-| 24 | 2021 | Standardized FAI measurement (CaRi-Heart) | *Cardiovasc Res* (10.2) | ~33 | Original Research | FAI-Score: scanner-adjusted, age/sex-normalized. CaRi-Heart device specification. AUC 0.809. |
-| 25 | 2021 | PVAT imaging by CT: virtual guide | *BJP* (7.3) | ~38 | Technical Guide | Measurement protocols, pitfalls, standardization |
-| 26 | 2022 | FAI Systematic Review & Meta-Analysis | *EHJ Cardiovasc Imaging* (6.2) | — | Meta-Analysis | 20 studies, 7,797 patients. FAI MD = 4.50 HU at culprit lesions. MACE HR = 3.29. |
-| 27 | 2022 | Pericardial Adiposity CMR (UK Biobank) | *EHJ Cardiovasc Imaging* (6.2) | ~22 | Original Research | n=42,598 UK Biobank. Pericardial fat → adverse remodeling, AF, HF. |
-| 28 | 2023 | Deep Learning EAT Assessment | *JACC Cardiovasc Imaging* (12.8) | ~77 | Original Research | 3D Res-U-Net for EAT. Trained on 2,800 ORFAN scans. 12.4s processing. Predicts all-cause mortality + AF. |
-| 29 | 2023 | EAT-derived miR-92a-3p | *JACC* (21.7) | ~19 | Original Research | n>1,200 across 6 study arms. miR-92a-3p suppresses WNT5A/RAC1 in myocardium. New molecular mediator. |
-| 30 | 2023 | ESC Consensus Statement | *EHJ* (39.3) | — | Consensus | ESC endorses FAI-Score, CaRi-Heart v2.5 by name, their PVAT definition. Identifies gaps = their future papers. |
-
-### Phase 6: Large-Scale Validation & Standardization (2024–2026)
-
-| # | Year | Title | Journal (IF) | Citations | Type | Key Innovation |
-|---|------|-------|-------------|-----------|------|---------------|
-| **31** | **2024** | **ORFAN Study** | ***The Lancet*** **(168.9)** | — | **Original Research** | **n=40,091.** FAI-Score Q4 vs Q1: HR 20.20 cardiac mortality. AI-Risk changed management in 45%. |
-| 32 | 2024 | AI in atherosclerosis CT (review) | *Atherosclerosis* (5.3) | — | Review | Landscape review positioning their technology |
-| 33 | 2025 | FAI-Score robustness | — | — | Original Research | Cross-scanner, cross-protocol stability validated |
-| 34 | 2025 | FAI Score standardization (editorial) | *JACC Cardiovasc Imaging* (12.8) | — | Editorial | Argues raw PCAT attenuation must be converted to FAI-Score for clinical use |
-| 35 | 2025 | Cost-effectiveness of AI | *EHJ QoCC* (4.6) | — | Health Economics | Markov model. ICER £1,371-3,244/QALY. 11% MI reduction, 12% cardiac death reduction predicted. |
-| 36 | 2026 | PVAT Imaging and Quantification | *ATVB* (8.4) | — | Review | Latest methodological review |
+**Where opportunities lie:**
+- **MRI-based PVAT characterization.** The patent is CT-specific. MRI offers fat/water fraction, T1/T2 mapping, diffusion-weighted imaging — potentially richer tissue characterization without ionizing radiation. No group has demonstrated PVAT inflammation detection by MRI.
+- **Non-coronary PVAT.** Carotid (stroke), aortic (aneurysm), femoral (PAD) — all clinically important, all acknowledged as unvalidated in the ESC consensus.
+- **Open-source reproducibility.** A transparent, publicly validated PVAT analysis pipeline would be scientifically complementary to the proprietary approach and attract collaborators.
+- **Photon-counting CT / dual-energy CT.** Material decomposition enables direct fat/water/calcium separation — a fundamentally different measurement physics from conventional single-energy attenuation.
+- **Diverse populations.** Women, non-white cohorts, younger patients with early disease.
+- **Prospective interventional evidence.** Even a small RCT of PVAT-guided therapy would address the field's most significant evidence gap.
 
 ---
 
-## Summary Statistics
+## Paper Catalogue
 
-| Metric | Count |
-|--------|-------|
-| Total papers | 36 |
-| Original research | 19 |
-| Reviews | 12 |
-| Consensus/meta-analysis/editorial/health economics | 5 |
-| Patents granted (US) | 1 |
-| Related patent applications | 4+ |
-| Commercial products | 3 (CaRi-Heart, CaRi-Plaque, AI-Risk) |
-| Total patients in major validations | ~50,000+ |
-| Top citation count (single paper) | ~872 |
-| Publications in IF>15 journals | 8 |
+### Phase 1: Biology (2013–2016)
 
-### Publication Venues
-- The Lancet (×2), Science Translational Medicine (×2), European Heart Journal (×4), JACC/JACC CVI (×5), Circulation/Circ Res (×3), Nature Reviews Cardiology (×1), JAMA Cardiology (×1), Cardiovascular Research (×3), British Journal of Pharmacology (×4), Others (×11)
+| # | Year | Title | Journal (IF) | Cit. | Key Contribution |
+|---|------|-------|-------------|------|-----------------|
+| 1 | 2013 | Adiponectin/eNOS in Human Vessels | *Circulation* (35.5) | ~321 | Bidirectional PVAT-vascular signaling; dual adiponectin mechanism. n=677+46. |
+| 2 | 2014 | Systemic Inflammation and BNP on Adiponectin | *ATVB* (8.4) | — | BNP upregulates adiponectin; links HF neurohormones to fat. |
+| 3 | 2015 | Adiponectin Links T2D to NADPH Oxidase | *Diabetes* (7.7) | ~241 | NADPH oxidase-specific; Mendelian randomization. n=386+67. |
+| 4 | 2016 | EAT-Myocardial Redox via PPARγ/Adiponectin | *Circ Res* (20.1) | ~158 | Inside-to-outside signaling in cardiac compartment. |
+
+### Phase 2: Reviews (2017)
+
+| # | Year | Title | Journal (IF) | Cit. |
+|---|------|-------|-------------|------|
+| 5 | 2017 | EAT in cardiac biology | *J Physiol* (5.5) | ~162 |
+| 6 | 2017 | Is fat always bad? | *Cardiovasc Res* (10.2) | ~148 |
+| 7 | 2017 | Dysfunctional adipose tissue | *BJP* (7.3) | — |
+| 8 | 2017 | PVAT as vascular disease regulator | *BJP* (7.3) | ~73 |
+| 9 | 2017 | Adiponectin paradox | *BJP* (7.3) | ~134 |
+
+### Phase 3: FAI & CRISP-CT (2017–2018)
+
+| # | Year | Title | Journal (IF) | Cit. | Key Contribution |
+|---|------|-------|-------------|------|-----------------|
+| **10** | **2017** | **Detecting coronary inflammation by imaging PVAT** | ***Sci Transl Med*** **(17.1)** | **~872** | **FAI invention.** n=453+37+273. |
+| **11** | **2018** | **CRISP-CT** | ***Lancet*** **(168.9)** | **~838** | **Prognostic validation.** n=3,912. HR 9.04 cardiac mortality. |
+| 12 | 2018 | Adipose tissue in CV health and disease | *Nat Rev Cardiol* (41.7) | ~396 | Definitive review positioning FAI. |
+| 13 | 2018 | PVAT and coronary atherosclerosis | *Heart* (5.0) | ~113 | Bridge paper: biology → imaging. PVAT definition. |
+
+### Phase 4: Expansion (2019)
+
+| # | Year | Title | Journal (IF) | Cit. | Key Contribution |
+|---|------|-------|-------------|------|-----------------|
+| **14** | **2019** | **Radiotranscriptomic FRP** | ***EHJ*** **(39.3)** | **~400** | **Radiomic texture captures fibrosis + vascularity beyond FAI.** |
+| 15 | 2019 | Biologic therapy in psoriasis | *JAMA Cardiol* (14.8) | ~197 | FAI as treatment-response biomarker. n=134. |
+| 16 | 2019 | Imaging residual inflammatory CV risk | *EHJ* (39.3) | ~145 | Clinical positioning review with Deanfield. |
+| 17 | 2019 | Atherosclerosis affecting fat | *JCCT* (3.3) | ~102 | FAI methodology review. |
+| 18 | 2019 | CT Assessment of Coronary Inflammation | *ATVB* (8.4) | ~35 | Technical review. |
+| 19 | 2019 | Making Sense From Perivascular Attenuation Maps | *JACC CVI* (12.8) | ~33 | Editorial/interpretation guide. |
+| 20 | 2019 | WNT5A/USP17/RAC1 pathway | *Sci Transl Med* (17.1) | — | Second druggable axis. n=1,004. |
+
+### Phase 5: Translation (2020–2023)
+
+| # | Year | Title | Journal (IF) | Cit. | Key Contribution |
+|---|------|-------|-------------|------|-----------------|
+| 21 | 2020 | FAI + HRP Stratification | *JACC* (21.7) | ~87 | HRP without inflammation = no excess risk. |
+| 22 | 2020 | AI Radiomic Guide | *Cardiovasc Res* (10.2) | ~77 | 16-point radiomic quality framework. |
+| 23 | 2021 | FAI in Coronary CTA | *Radiol Cardiothorac Imaging* (4.5) | ~62 | Practical FAI guide. |
+| 24 | 2021 | Standardized FAI measurement | *Cardiovasc Res* (10.2) | ~33 | FAI-Score and CaRi-Heart specification. AUC 0.809. |
+| 25 | 2021 | PVAT imaging by CT: virtual guide | *BJP* (7.3) | ~38 | Measurement protocols and pitfalls. |
+| 26 | 2022 | FAI Meta-Analysis | *EHJ CVI* (6.2) | — | 20 studies, 7,797 patients. MACE HR 3.29. |
+| 27 | 2022 | Pericardial Adiposity CMR | *EHJ CVI* (6.2) | ~22 | UK Biobank n=42,598. EAT volume → adverse remodeling, AF. |
+| 28 | 2023 | Deep Learning EAT | *JACC CVI* (12.8) | ~77 | 3D Res-U-Net. 12.4s processing. Predicts mortality + AF. |
+| 29 | 2023 | EAT-derived miR-92a-3p | *JACC* (21.7) | ~19 | miR-92a-3p suppresses WNT5A/RAC1 in myocardium. |
+| 30 | 2023 | ESC Consensus Statement | *EHJ* (39.3) | — | ESC endorses FAI-Score, CaRi-Heart, PVAT definition. |
+
+### Phase 6: Validation (2024–2026)
+
+| # | Year | Title | Journal (IF) | Cit. | Key Contribution |
+|---|------|-------|-------------|------|-----------------|
+| **31** | **2024** | **ORFAN Study** | ***Lancet*** **(168.9)** | — | **n=40,091.** HR 20.20 cardiac mortality Q4 vs Q1. |
+| 32 | 2024 | AI in atherosclerosis CT | *Atherosclerosis* (5.3) | — | Landscape review. |
+| 33 | 2025 | FAI-Score robustness | — | — | Cross-scanner stability. n=7,822. |
+| 34 | 2025 | FAI Score standardization editorial | *JACC CVI* (12.8) | — | Case for standardized measurement. |
+| 35 | 2025 | Cost-effectiveness of AI | *EHJ QoCC* (4.6) | — | ICER £1,371-3,244/QALY. |
+| 36 | 2026 | PVAT Imaging and Quantification | *ATVB* (8.4) | — | Latest methodological review. |
+
+---
+
+**Summary:** 36 papers | 19 original research | 12 reviews | 5 other (consensus, meta-analysis, editorial, health economics) | 1 US patent | 3 commercial products | ~50,000 patients validated | 8 publications in IF>15 journals
 
 ---
 
 *Last updated: March 12, 2026*
-*Based on deep analysis of all 36 papers, US patent 10,695,023, ESC consensus statement, and supplementary data*
