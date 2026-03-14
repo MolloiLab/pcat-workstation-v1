@@ -207,11 +207,17 @@ class VTKSliceView(QWidget):
 
     def set_volume(self, volume: np.ndarray, spacing: list) -> None:
         """Load a numpy volume (Z, Y, X) float32 with given spacing [sz, sy, sx]."""
+        vtk_image = self._numpy_to_vtk_image(volume, spacing)
+        self.set_volume_from_vtk(volume, spacing, vtk_image)
+
+    def set_volume_from_vtk(
+        self, volume: np.ndarray, spacing: list, vtk_image: vtkImageData
+    ) -> None:
+        """Load from a pre-built vtkImageData (avoids redundant copies)."""
         self._volume = volume
         self._spacing = list(spacing)
         self._shape = volume.shape  # (Z, Y, X)
 
-        vtk_image = self._numpy_to_vtk_image(volume, spacing)
         self._mapper.SetInputData(vtk_image)
 
         if not self._actor_added:

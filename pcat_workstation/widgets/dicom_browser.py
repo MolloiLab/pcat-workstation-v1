@@ -35,7 +35,7 @@ class DicomBrowser(QWidget):
 
         # --- Header ---
         header = QLabel("DICOM Browser")
-        header.setStyleSheet("font-weight: bold; font-size: 18pt; color: #1a1a1a;")
+        header.setStyleSheet("font-weight: bold; font-size: 18pt; color: #e5e5e7;")
         layout.addWidget(header)
 
         # --- Import button ---
@@ -51,7 +51,7 @@ class DicomBrowser(QWidget):
         drop_layout.setAlignment(Qt.AlignCenter)
         drop_label = QLabel("Drop DICOM folder here")
         drop_label.setAlignment(Qt.AlignCenter)
-        drop_label.setStyleSheet("color: #9a9490; font-size: 13pt; border: none;")
+        drop_label.setStyleSheet("color: #636366; font-size: 13pt; border: none;")
         drop_layout.addWidget(drop_label)
         layout.addWidget(self._drop_zone)
 
@@ -65,14 +65,14 @@ class DicomBrowser(QWidget):
         info_layout.setSpacing(3)
 
         self._lbl_patient_id = QLabel()
-        self._lbl_patient_id.setStyleSheet("font-weight: bold; color: #1a1a1a;")
+        self._lbl_patient_id.setStyleSheet("font-weight: bold; color: #e5e5e7;")
         self._lbl_study_date = QLabel()
         self._lbl_series_desc = QLabel()
         self._lbl_kvp = QLabel()
         self._lbl_dimensions = QLabel()
-        self._lbl_dimensions.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; color: #1a1a1a;")
+        self._lbl_dimensions.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; color: #e5e5e7;")
         self._lbl_spacing = QLabel()
-        self._lbl_spacing.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; color: #1a1a1a;")
+        self._lbl_spacing.setStyleSheet("font-family: 'Menlo', 'Courier New', monospace; color: #e5e5e7;")
 
         for lbl in (
             self._lbl_patient_id,
@@ -94,7 +94,7 @@ class DicomBrowser(QWidget):
 
         # --- Recent projects ---
         recent_label = QLabel("Recent")
-        recent_label.setStyleSheet("font-weight: bold; font-size: 15pt; color: #1a1a1a;")
+        recent_label.setStyleSheet("font-weight: bold; font-size: 15pt; color: #e5e5e7;")
         layout.addWidget(recent_label)
 
         self._recent_tree = QTreeWidget()
@@ -122,10 +122,10 @@ class DicomBrowser(QWidget):
         self.setStyleSheet(
             """
             DicomBrowser {
-                background: #fdfbf9;
+                background: #1c1c1e;
             }
             QPushButton#importBtn {
-                background: #2563EB;
+                background: #0a84ff;
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -133,33 +133,33 @@ class DicomBrowser(QWidget):
                 font-size: 15pt;
             }
             QPushButton#importBtn:hover {
-                background: #1D4ED8;
+                background: #0070e0;
             }
             QTreeWidget {
-                background: #f5f1e8;
-                alternate-background-color: #fdfbf9;
-                color: #1a1a1a;
+                background: #2c2c2e;
+                alternate-background-color: #1c1c1e;
+                color: #e5e5e7;
                 border: none;
                 font-size: 13pt;
             }
             QTreeWidget::item:selected {
-                background: #e2ddd5;
+                background: #464649;
             }
             QHeaderView::section {
-                background: #f5f1e8;
-                color: #6b6560;
+                background: #2c2c2e;
+                color: #98989d;
                 border: none;
                 padding: 4px;
                 font-size: 13pt;
             }
             QLabel {
-                color: #1a1a1a;
+                color: #e5e5e7;
             }
             """
         )
         self._import_btn.setObjectName("importBtn")
         self._drop_zone.setStyleSheet(
-            "QFrame { border: 2px dashed #e2ddd5; border-radius: 8px; background: transparent; }"
+            "QFrame { border: 2px dashed #38383a; border-radius: 8px; background: transparent; }"
         )
 
     # ------------------------------------------------------------------ #
@@ -170,7 +170,7 @@ class DicomBrowser(QWidget):
     def _separator() -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #e2ddd5;")
+        line.setStyleSheet("color: #38383a;")
         line.setFixedHeight(2)
         return line
 

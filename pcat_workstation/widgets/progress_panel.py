@@ -20,17 +20,17 @@ _STATUS_ICONS = {
 }
 
 _STATUS_COLORS = {
-    "pending": "#9a9490",
-    "running": "#2563EB",
-    "complete": "#16A34A",
-    "failed": "#DC2626",
-    "skipped": "#9a9490",
+    "pending": "#636366",
+    "running": "#0a84ff",
+    "complete": "#30d158",
+    "failed": "#ff453a",
+    "skipped": "#636366",
 }
 
 _VESSEL_COLORS = {
-    "LAD": "#DC2626",
-    "LCx": "#2563EB",
-    "RCA": "#16A34A",
+    "LAD": "#ff453a",
+    "LCx": "#0a84ff",
+    "RCA": "#30d158",
 }
 
 
@@ -48,11 +48,11 @@ class _StageRow(QFrame):
         self.icon_label = QLabel(_STATUS_ICONS["pending"])
         self.icon_label.setFixedWidth(20)
         self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setStyleSheet("color: #9a9490; font-size: 15pt;")
+        self.icon_label.setStyleSheet("color: #636366; font-size: 15pt;")
         layout.addWidget(self.icon_label)
 
         self.name_label = QLabel(label)
-        self.name_label.setStyleSheet("color: #1a1a1a; font-size: 13pt;")
+        self.name_label.setStyleSheet("color: #e5e5e7; font-size: 13pt;")
         self.name_label.setSizePolicy(
             self.name_label.sizePolicy().horizontalPolicy(),
             self.name_label.sizePolicy().verticalPolicy(),
@@ -62,7 +62,7 @@ class _StageRow(QFrame):
         self.time_label = QLabel("")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.time_label.setStyleSheet(
-            "color: #6b6560; font-family: 'Menlo', 'Courier New', monospace; font-size: 11pt;"
+            "color: #98989d; font-family: 'Menlo', 'Courier New', monospace; font-size: 11pt;"
         )
         self.time_label.setFixedWidth(40)
         layout.addWidget(self.time_label)
@@ -114,7 +114,7 @@ class ProgressPanel(QWidget):
 
         # --- Header ---
         header = QLabel("Pipeline")
-        header.setStyleSheet("font-weight: bold; font-size: 18pt; color: #1a1a1a;")
+        header.setStyleSheet("font-weight: bold; font-size: 18pt; color: #e5e5e7;")
         layout.addWidget(header)
 
         # --- Run button ---
@@ -124,7 +124,7 @@ class ProgressPanel(QWidget):
         self._run_btn.setStyleSheet(
             """
             QPushButton {
-                background-color: #2563EB;
+                background-color: #0a84ff;
                 color: #ffffff;
                 border: none;
                 border-radius: 4px;
@@ -132,11 +132,11 @@ class ProgressPanel(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #1D4ED8;
+                background-color: #0070e0;
             }
             QPushButton:disabled {
-                background-color: #efe9df;
-                color: #9a9490;
+                background-color: #3a3a3c;
+                color: #636366;
             }
             """
         )
@@ -162,7 +162,7 @@ class ProgressPanel(QWidget):
         # --- Separator ---
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color: #e2ddd5;")
+        sep.setStyleSheet("color: #38383a;")
         sep.setFixedHeight(2)
         layout.addWidget(sep)
 
@@ -234,11 +234,11 @@ class ProgressPanel(QWidget):
 
             fai_lbl = QLabel(f"{fai_value:.1f} HU")
             fai_lbl.setStyleSheet(
-                "color: #1a1a1a; font-family: 'Menlo', 'Courier New', monospace; font-size: 13pt;"
+                "color: #e5e5e7; font-family: 'Menlo', 'Courier New', monospace; font-size: 13pt;"
             )
             row_layout.addWidget(fai_lbl, stretch=1)
 
-            risk_color = "#D97706" if risk == "HIGH" else "#16A34A"
+            risk_color = "#ff9f0a" if risk == "HIGH" else "#30d158"
             risk_lbl = QLabel(risk)
             risk_lbl.setStyleSheet(
                 f"color: {risk_color}; font-weight: bold; font-size: 13pt;"

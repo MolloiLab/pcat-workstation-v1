@@ -91,7 +91,7 @@ class MainToolBar(QToolBar):
 
         # --- W/L presets ---
         wl_label = QLabel(" W/L: ")
-        wl_label.setStyleSheet("color: #1a1a1a; font-size: 13pt;")
+        wl_label.setStyleSheet("color: #e5e5e7; font-size: 13pt;")
         self.addWidget(wl_label)
 
         self._wl_combo = QComboBox()
@@ -114,7 +114,7 @@ class MainToolBar(QToolBar):
         self._run_btn.setStyleSheet(
             """
             QPushButton {
-                background-color: #2563EB;
+                background-color: #0a84ff;
                 color: #ffffff;
                 border: none;
                 border-radius: 4px;
@@ -122,8 +122,8 @@ class MainToolBar(QToolBar):
                 font-size: 15pt;
                 font-weight: bold;
             }
-            QPushButton:hover { background-color: #1D4ED8; }
-            QPushButton:disabled { background-color: #efe9df; color: #9a9490; }
+            QPushButton:hover { background-color: #0070e0; }
+            QPushButton:disabled { background-color: #3a3a3c; color: #636366; }
             """
         )
         self._run_btn.clicked.connect(self.run_clicked)
@@ -136,13 +136,13 @@ class MainToolBar(QToolBar):
             """
             QPushButton {
                 background-color: transparent;
-                color: #1a1a1a;
-                border: 1px solid #e2ddd5;
+                color: #e5e5e7;
+                border: 1px solid #38383a;
                 border-radius: 4px;
                 padding: 4px 16px;
                 font-size: 15pt;
             }
-            QPushButton:hover { background-color: #efe9df; }
+            QPushButton:hover { background-color: #3a3a3c; }
             """
         )
         self._export_btn.clicked.connect(self.export_clicked)
@@ -232,18 +232,18 @@ class MainToolBar(QToolBar):
         return """
             QToolButton {
                 background-color: transparent;
-                color: #1a1a1a;
-                border: 1px solid #e2ddd5;
+                color: #e5e5e7;
+                border: 1px solid #38383a;
                 border-radius: 3px;
                 padding: 4px 12px;
                 font-size: 13pt;
             }
             QToolButton:checked {
-                background-color: #2563EB;
+                background-color: #0a84ff;
                 color: #ffffff;
                 border: none;
             }
             QToolButton:hover:!checked {
-                background-color: #efe9df;
+                background-color: #3a3a3c;
             }
         """

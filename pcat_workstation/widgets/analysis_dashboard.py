@@ -12,17 +12,17 @@ from matplotlib.figure import Figure
 
 # Vessel colors matching the workstation palette
 _VESSEL_COLORS = {
-    "LAD": "#DC2626",
-    "LCx": "#2563EB",
-    "RCA": "#16A34A",
+    "LAD": "#ff453a",
+    "LCx": "#0a84ff",
+    "RCA": "#30d158",
 }
 
 # Craft-themed matplotlib styling
 _MPL_STYLE = {
-    "facecolor": "#fdfbf9",
-    "text_color": "#1a1a1a",
-    "grid_color": "#e2ddd5",
-    "spine_color": "#e2ddd5",
+    "facecolor": "#1c1c1e",
+    "text_color": "#e5e5e7",
+    "grid_color": "#38383a",
+    "spine_color": "#38383a",
     "font_size": 11,
 }
 
@@ -73,14 +73,14 @@ class AnalysisDashboard(QWidget):
     # ── UI construction ─────────────────────────────────────────────
 
     def _build_ui(self):
-        self.setStyleSheet("background: #f5f1e8;")
+        self.setStyleSheet("background: #2c2c2e;")
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         # Header bar
         header = QWidget()
-        header.setStyleSheet("background: #efe9df;")
+        header.setStyleSheet("background: #3a3a3c;")
         header.setFixedHeight(36)
         h_lay = QHBoxLayout(header)
         h_lay.setContentsMargins(12, 0, 12, 0)
@@ -93,7 +93,7 @@ class AnalysisDashboard(QWidget):
         self._toggle_btn = QPushButton("▲")
         self._toggle_btn.setFixedSize(28, 28)
         self._toggle_btn.setStyleSheet(
-            "QPushButton { border: none; color: #6b6560; font-size: 14pt; background: transparent; }"
+            "QPushButton { border: none; color: #636366; font-size: 14pt; background: transparent; }"
         )
         self._toggle_btn.clicked.connect(lambda: self.set_collapsed(not self._collapsed))
         h_lay.addWidget(self._toggle_btn)

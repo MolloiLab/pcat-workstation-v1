@@ -86,9 +86,14 @@ class MPRPanel(QWidget):
     # ── Public API ───────────────────────────────────────────────────
 
     def set_volume(self, volume: np.ndarray, spacing: list) -> None:
-        """Pass volume and spacing to all three VTK viewers."""
+        """Pass volume and spacing to all three VTK viewers.
+
+        Builds VTK image data once and shares it across viewers to avoid
+        tripling memory usage for the numpy→VTK copy.
+        """
+        vtk_image = self._axial._numpy_to_vtk_image(volume, spacing)
         for viewer in (self._axial, self._coronal, self._sagittal):
-            viewer.set_volume(volume, spacing)
+            viewer.set_volume_from_vtk(volume, spacing, vtk_image)
 
     def set_window_level(self, window: float, level: float) -> None:
         """Sync window/level across all viewers."""

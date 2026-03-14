@@ -11,9 +11,9 @@ FAI_RISK_THRESHOLD = -70.1  # HU, above this = HIGH risk (HR=9.04)
 
 # Vessel segment definitions
 VESSEL_CONFIGS = {
-    "LAD": {"start_mm": 0.0, "length_mm": 40.0, "color": "#DC2626", "key": "1"},
-    "LCx": {"start_mm": 0.0, "length_mm": 40.0, "color": "#2563EB", "key": "2"},
-    "RCA": {"start_mm": 10.0, "length_mm": 40.0, "color": "#16A34A", "key": "3"},
+    "LAD": {"start_mm": 0.0, "length_mm": 40.0, "color": "#ff453a", "key": "1"},
+    "LCx": {"start_mm": 0.0, "length_mm": 40.0, "color": "#0a84ff", "key": "2"},
+    "RCA": {"start_mm": 10.0, "length_mm": 40.0, "color": "#30d158", "key": "3"},
 }
 
 # PCAT VOI geometry

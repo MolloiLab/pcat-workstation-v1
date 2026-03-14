@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QMainWindow, QDockWidget, QWidget, QVBoxLayout,
-    QStatusBar, QMessageBox, QApplication,
+    QStatusBar, QMessageBox,
     QStackedWidget, QSplitter,
 )
 from PySide6.QtCore import Qt, Slot
@@ -17,6 +17,7 @@ from pcat_workstation.widgets.mpr_panel import MPRPanel
 from pcat_workstation.widgets.results_summary import ResultsSummary
 from pcat_workstation.widgets.analysis_dashboard import AnalysisDashboard
 from pcat_workstation.workers.pipeline_worker import PipelineWorker
+from pcat_workstation.workers.dicom_loader_worker import DicomLoaderWorker
 from pcat_workstation.models.patient_session import PatientSession
 from pcat_workstation.models.dicom_index import DicomIndex
 from pcat_workstation.app.config import DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_LEVEL
@@ -36,6 +37,7 @@ class MainWindow(QMainWindow):
         self._session: Optional[PatientSession] = None
         self._current_vessel: str = "LAD"
         self._pipeline_worker: Optional[PipelineWorker] = None
+        self._loader_worker: Optional[DicomLoaderWorker] = None
 
         # Build UI
         self._setup_central_widget()
@@ -180,19 +182,32 @@ class MainWindow(QMainWindow):
 
         self._session = PatientSession(session_dir)
 
+        # Disable import while loading
+        self._dicom_browser._import_btn.setEnabled(False)
         self.statusBar().showMessage(f"Loading DICOM from {dicom_dir}...")
-        QApplication.processEvents()
 
-        try:
-            self._session.load_dicom(dicom_path)
-        except Exception as exc:
-            QMessageBox.critical(self, "DICOM Load Error", str(exc))
-            self.statusBar().showMessage("DICOM load failed")
-            return
+        # Launch background loader
+        self._loader_worker = DicomLoaderWorker(dicom_path, self._session, parent=self)
+        self._loader_worker.progress.connect(self._on_loader_progress)
+        self._loader_worker.finished.connect(
+            lambda vol, meta: self._on_loader_finished(vol, meta, dicom_path, session_dir)
+        )
+        self._loader_worker.failed.connect(self._on_loader_failed)
+        self._loader_worker.start()
 
-        # Update viewer
-        volume = self._session.get_volume()
-        meta = self._session.get_meta()
+    @Slot(str)
+    def _on_loader_progress(self, message: str) -> None:
+        self.statusBar().showMessage(message)
+
+    def _on_loader_finished(self, volume, meta, dicom_path: Path, session_dir: Path) -> None:
+        """Handle successful DICOM load from background thread."""
+        # Re-enable import
+        self._dicom_browser._import_btn.setEnabled(True)
+
+        # Mark import stage complete (must be on main thread for autosave)
+        self._session.set_stage_status("import", "complete")
+
+        # VTK setup must happen on main thread
         if volume is not None and meta is not None:
             spacing = meta.get("spacing_mm", [1.0, 1.0, 1.0])
             self._mpr_panel.set_volume(volume, spacing)
@@ -216,7 +231,7 @@ class MainWindow(QMainWindow):
                 shutil.move(str(item), str(new_dir / item.name))
             session_dir.rmdir()
             session_dir = new_dir
-            self._session._session_dir = session_dir
+            self._session.session_dir = new_dir
             self._session._autosave()
 
         # Update index
@@ -239,6 +254,25 @@ class MainWindow(QMainWindow):
             f"Loaded: {self._session.patient_id} "
             f"({shape[0]}\u00d7{shape[1]}\u00d7{shape[2]})"
         )
+        self._loader_worker = None
+
+    @Slot(str)
+    def _on_loader_failed(self, error: str) -> None:
+        """Handle DICOM load failure from background thread."""
+        self._dicom_browser._import_btn.setEnabled(True)
+        QMessageBox.critical(self, "DICOM Load Error", error)
+        self.statusBar().showMessage("DICOM load failed")
+        self._loader_worker = None
+
+    def _on_reload_finished(self, volume, meta) -> None:
+        """Handle volume reload from an existing session."""
+        if volume is not None and meta is not None:
+            spacing = meta.get("spacing_mm", [1.0, 1.0, 1.0])
+            self._mpr_panel.set_volume(volume, spacing)
+        if meta:
+            self._dicom_browser.set_patient_info(meta)
+        self.statusBar().showMessage(f"Resumed: {self._session.patient_id}")
+        self._loader_worker = None
 
     @Slot(str)
     def _on_session_selected(self, session_dir: str) -> None:
@@ -258,18 +292,15 @@ class MainWindow(QMainWindow):
         # Reload volume if DICOM dir still exists
         if self._session.dicom_dir and self._session.dicom_dir.exists():
             self.statusBar().showMessage("Reloading volume...")
-            QApplication.processEvents()
-            try:
-                self._session.load_dicom(self._session.dicom_dir)
-                volume = self._session.get_volume()
-                meta = self._session.get_meta()
-                if volume is not None and meta is not None:
-                    spacing = meta.get("spacing_mm", [1.0, 1.0, 1.0])
-                    self._mpr_panel.set_volume(volume, spacing)
-                if meta:
-                    self._dicom_browser.set_patient_info(meta)
-            except Exception:
-                pass  # Volume may not be available; non-fatal
+            self._loader_worker = DicomLoaderWorker(
+                self._session.dicom_dir, self._session, parent=self
+            )
+            self._loader_worker.progress.connect(self._on_loader_progress)
+            self._loader_worker.finished.connect(self._on_reload_finished)
+            self._loader_worker.failed.connect(
+                lambda _: self.statusBar().showMessage("Volume reload failed")
+            )
+            self._loader_worker.start()
 
         # Restore vessel stats if available
         if self._session.vessel_stats:

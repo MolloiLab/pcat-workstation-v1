@@ -1,30 +1,40 @@
-"""Warm light theme stylesheet for PCAT Workstation."""
+"""Horos-inspired dark theme stylesheet for PCAT Workstation."""
+
+COLORS = {
+    "bg": "#1c1c1e",
+    "panel": "#2c2c2e",
+    "surface": "#3a3a3c",
+    "text": "#e5e5e7",
+    "text_secondary": "#98989d",
+    "text_tertiary": "#636366",
+    "border": "#38383a",
+    "hover": "#3a3a3c",
+    "selection": "#464649",
+    "accent": "#0a84ff",
+    "accent_hover": "#0070e0",
+    "warning": "#ff9f0a",
+    "success": "#30d158",
+    "error": "#ff453a",
+}
 
 
 def get_stylesheet() -> str:
-    """Return a complete QSS warm-light-theme stylesheet."""
+    """Return a complete QSS dark-theme stylesheet."""
 
-    # Backgrounds
-    bg = "#fdfbf9"
-    panel = "#f5f1e8"
-    surface = "#efe9df"
-
-    # Text
-    text = "#1a1a1a"
-    text_secondary = "#6b6560"
-    text_tertiary = "#9a9490"
-
-    # Chrome
-    border = "#e2ddd5"
-    hover = "#efe9df"
-    selection = "#e2ddd5"
-
-    # Accent / semantic
-    accent = "#2563EB"
-    accent_hover = "#1D4ED8"
-    warning = "#D97706"
-    success = "#16A34A"
-    error = "#DC2626"
+    bg = COLORS["bg"]
+    panel = COLORS["panel"]
+    surface = COLORS["surface"]
+    text = COLORS["text"]
+    text_secondary = COLORS["text_secondary"]
+    text_tertiary = COLORS["text_tertiary"]
+    border = COLORS["border"]
+    hover = COLORS["hover"]
+    selection = COLORS["selection"]
+    accent = COLORS["accent"]
+    accent_hover = COLORS["accent_hover"]
+    warning = COLORS["warning"]
+    success = COLORS["success"]
+    error = COLORS["error"]
 
     return f"""
 /* ── Base ─────────────────────────────────────────── */

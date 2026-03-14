@@ -17,12 +17,12 @@ from pcat_workstation.app.config import FAI_RISK_THRESHOLD, VESSEL_CONFIGS
 _VESSELS = ["LAD", "LCx", "RCA"]
 _COLUMNS = ["Vessel", "FAI (HU)", "Risk", "Confidence", "Flags"]
 
-_BG = "#fdfbf9"
-_ROW_ALT = "#f5f1e8"
-_TEXT = "#1a1a1a"
-_MUTED = "#6b6560"
-_GREEN = "#16A34A"
-_AMBER = "#D97706"
+_BG = "#1c1c1e"
+_ROW_ALT = "#2c2c2e"
+_TEXT = "#e5e5e7"
+_MUTED = "#98989d"
+_GREEN = "#30d158"
+_AMBER = "#ff9f0a"
 _MONO = "'Menlo', 'Courier New', monospace"
 
 
@@ -274,7 +274,7 @@ class ResultsSummary(QWidget):
             "QPushButton {"
             f"  background: {_BG};"
             f"  color: {_MUTED};"
-            "  border: 1px solid #d5d0c8;"
+            "  border: 1px solid #38383a;"
             "  border-radius: 6px;"
             "  padding: 8px 16px;"
             "  font-size: 13pt;"
