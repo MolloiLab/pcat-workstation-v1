@@ -401,8 +401,59 @@ class VTKSliceView(QWidget):
     # ── Camera ──────────────────────────────────────────────────────
 
     def reset_camera(self) -> None:
-        """Reset zoom/pan to fit the current slice."""
-        self._vtk_renderer.ResetCamera()
+        """Orient camera for the current slice plane and fill the viewport.
+
+        Follows ImageJ / radiology conventions:
+        - Axial:    look from superior, row 0 at top (ViewUp = 0,-1,0)
+        - Coronal:  look from anterior, superior at top (ViewUp = 0,0,1)
+        - Sagittal: look from right,    superior at top (ViewUp = 0,0,1)
+        Uses parallel projection so the image fills the widget like ImageJ.
+        """
+        if self._volume is None:
+            return
+
+        nz, ny, nx = self._shape
+        sx, sy, sz = self._spacing[2], self._spacing[1], self._spacing[0]
+
+        # Physical extents (mm)
+        wx, wy, wz = nx * sx, ny * sy, nz * sz
+        cx, cy, cz = wx / 2, wy / 2, wz / 2
+        dist = max(wx, wy, wz) * 2  # far enough to see everything
+
+        cam = self._vtk_renderer.GetActiveCamera()
+        cam.ParallelProjectionOn()
+
+        if self._orientation == "axial":
+            # Camera above, looking down -Z
+            cam.SetPosition(cx, cy, cz + dist)
+            cam.SetFocalPoint(cx, cy, cz)
+            cam.SetViewUp(0, -1, 0)  # flip Y so row 0 = top (ImageJ)
+            half_w, half_h = wx / 2, wy / 2
+        elif self._orientation == "coronal":
+            # Camera in front, looking down -Y
+            cam.SetPosition(cx, cy + dist, cz)
+            cam.SetFocalPoint(cx, cy, cz)
+            cam.SetViewUp(0, 0, 1)  # Z up (superior at top)
+            half_w, half_h = wx / 2, wz / 2
+        else:  # sagittal
+            # Camera on right side, looking down -X
+            cam.SetPosition(cx + dist, cy, cz)
+            cam.SetFocalPoint(cx, cy, cz)
+            cam.SetViewUp(0, 0, 1)  # Z up (superior at top)
+            half_w, half_h = wy / 2, wz / 2
+
+        # Compute parallel scale to fill viewport (like ImageJ's "Fit")
+        widget_w = max(self._vtk_widget.width(), 1)
+        widget_h = max(self._vtk_widget.height(), 1)
+        aspect = widget_w / widget_h
+
+        # ParallelScale = half the viewport height in world coords.
+        # Pick whichever dimension is the limiting factor.
+        scale_by_height = half_h
+        scale_by_width = half_w / aspect
+        cam.SetParallelScale(max(scale_by_height, scale_by_width))
+
+        self._vtk_renderer.ResetCameraClippingRange()
         self._render()
 
     # ── Render helper ───────────────────────────────────────────────
