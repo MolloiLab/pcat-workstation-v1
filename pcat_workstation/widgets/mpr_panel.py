@@ -5,6 +5,7 @@ from PySide6.QtCore import Signal, Qt
 import numpy as np
 
 from pcat_workstation.widgets.vtk_slice_view import VTKSliceView
+from pcat_workstation.widgets.cpr_view import CPRView
 
 
 class MPRPanel(QWidget):
@@ -35,16 +36,12 @@ class MPRPanel(QWidget):
         self._coronal = VTKSliceView("coronal")
         self._sagittal = VTKSliceView("sagittal")
 
-        self._cpr_placeholder = QLabel("CPR — available after pipeline")
-        self._cpr_placeholder.setAlignment(Qt.AlignCenter)
-        self._cpr_placeholder.setStyleSheet(
-            "QLabel { background-color: #0f0f0f; color: #6b6560; font-size: 15pt; }"
-        )
+        self._cpr_view = CPRView()
 
         layout.addWidget(self._axial, 0, 0)
         layout.addWidget(self._coronal, 0, 1)
         layout.addWidget(self._sagittal, 1, 0)
-        layout.addWidget(self._cpr_placeholder, 1, 1)
+        layout.addWidget(self._cpr_view, 1, 1)
 
         for i in range(2):
             layout.setRowStretch(i, 1)
@@ -136,3 +133,15 @@ class MPRPanel(QWidget):
     def set_voi_overlay(self, voi_masks_dict: dict, spacing: list) -> None:
         for viewer in (self._axial, self._coronal, self._sagittal):
             viewer.set_voi_overlay(voi_masks_dict, spacing)
+
+    def set_cpr_data(self, vessel: str, cpr_image: np.ndarray) -> None:
+        """Store a CPR image for a vessel in the CPR view."""
+        self._cpr_view.set_cpr_data(vessel, cpr_image)
+
+    def set_cpr_vessel(self, vessel: str) -> None:
+        """Switch which vessel's CPR is displayed."""
+        self._cpr_view.set_vessel(vessel)
+
+    def clear_cpr(self) -> None:
+        """Clear CPR data."""
+        self._cpr_view.clear()

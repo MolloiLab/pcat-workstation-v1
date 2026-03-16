@@ -11,11 +11,11 @@ from pcat_workstation.app.config import VESSEL_CONFIGS
 
 
 _WL_PRESETS = [
-    ("CT Cardiac", 1500.0, 300.0),
+    ("CT Vascular", 800.0, 200.0),
     ("CT Soft Tissue", 400.0, 40.0),
+    ("CT Mediastinum", 1500.0, 300.0),
     ("CT Lung", 1500.0, -500.0),
     ("CT Bone", 2000.0, 500.0),
-    ("CT Vascular", 800.0, 200.0),
 ]
 
 

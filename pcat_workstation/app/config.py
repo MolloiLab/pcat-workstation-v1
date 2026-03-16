@@ -19,9 +19,9 @@ VESSEL_CONFIGS = {
 # PCAT VOI geometry
 DEFAULT_PCAT_SCALE = 3.0  # x mean vessel radius
 
-# CT display defaults
-DEFAULT_WINDOW_WIDTH = 1500
-DEFAULT_WINDOW_LEVEL = 300
+# CT display defaults (vascular window for coronary artery work)
+DEFAULT_WINDOW_WIDTH = 800
+DEFAULT_WINDOW_LEVEL = 200
 
 # Pipeline stages (ordered)
 PIPELINE_STAGES = [

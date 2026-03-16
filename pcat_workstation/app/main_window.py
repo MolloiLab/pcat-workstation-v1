@@ -386,12 +386,14 @@ class MainWindow(QMainWindow):
         self._pipeline_worker.centerlines_ready.connect(self._on_centerlines_ready)
         self._pipeline_worker.contours_ready.connect(self._on_contours_ready)
         self._pipeline_worker.voi_masks_ready.connect(self._on_voi_masks_ready)
+        self._pipeline_worker.cpr_ready.connect(self._on_cpr_ready)
 
         self._progress_panel.set_running(True)
         self._toolbar.set_run_enabled(False)
         self._central_stack.setCurrentIndex(0)  # Show viewer during pipeline
 
         self._mpr_panel.clear_overlays()
+        self._mpr_panel.clear_cpr()
         self._pipeline_worker.start()
 
     @Slot(str)
@@ -471,10 +473,15 @@ class MainWindow(QMainWindow):
         if meta:
             self._mpr_panel.set_voi_overlay(voi_masks_dict, meta["spacing_mm"])
 
+    @Slot(str, object)
+    def _on_cpr_ready(self, vessel: str, cpr_image) -> None:
+        self._mpr_panel.set_cpr_data(vessel, cpr_image)
+
     @Slot(str)
     def _on_vessel_changed(self, vessel: str) -> None:
         """Handle vessel selection change from toolbar."""
         self._current_vessel = vessel
+        self._mpr_panel.set_cpr_vessel(vessel)
         self.statusBar().showMessage(f"Vessel: {vessel}")
 
     @Slot(float, float)

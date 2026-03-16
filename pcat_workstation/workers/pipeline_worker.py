@@ -45,6 +45,7 @@ class PipelineWorker(QThread):
     seeds_ready = Signal(object)
     centerlines_ready = Signal(object)
     contours_ready = Signal(object)
+    cpr_ready = Signal(str, object)  # (vessel_name, cpr_image_2d)
     voi_masks_ready = Signal(object)
 
     def __init__(
@@ -328,6 +329,20 @@ class PipelineWorker(QThread):
             self.stage_completed.emit("contours", time.time() - t0)
 
             self.contours_ready.emit(dict(self.vessel_contour_results))
+
+            # Generate CPR images from contour data
+            for vessel, cr in self.vessel_contour_results.items():
+                try:
+                    from pipeline.visualize import _build_cpr_image_fast
+                    cpr_img = _build_cpr_image_fast(
+                        volume, np.array(spacing_mm),
+                        cr.positions_mm, cr.N_frame, cr.B_frame,
+                        n_rows=128, row_extent_mm=10.0, slab_mm=3.0,
+                    )
+                    self.cpr_ready.emit(vessel, cpr_img)
+                    self._emit(f"  {vessel} CPR generated")
+                except Exception as exc:
+                    self._emit(f"  {vessel} CPR failed: {exc}")
 
         # ── Stage: pcat_voi ──────────────────────────────────────────
         if not self._should_skip("pcat_voi"):
