@@ -1,10 +1,10 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTreeWidget, QTreeWidgetItem, QFileDialog, QFrame,
-    QHeaderView, QAbstractItemView,
+    QHeaderView, QAbstractItemView, QMenu,
 )
 from PySide6.QtCore import Signal, Qt, QMimeData
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QAction
 from pathlib import Path
 from typing import Optional, Dict, List
 
@@ -14,6 +14,7 @@ class DicomBrowser(QWidget):
 
     dicom_imported = Signal(str)
     session_selected = Signal(str)
+    session_removed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -105,6 +106,8 @@ class DicomBrowser(QWidget):
         self._recent_tree.setAlternatingRowColors(True)
         self._recent_tree.setFrameShape(QFrame.NoFrame)
         self._recent_tree.itemDoubleClicked.connect(self._on_recent_double_clicked)
+        self._recent_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._recent_tree.customContextMenuRequested.connect(self._on_recent_context_menu)
 
         header_view = self._recent_tree.header()
         header_view.setStretchLastSection(True)
@@ -231,6 +234,19 @@ class DicomBrowser(QWidget):
         session_dir = item.data(0, Qt.UserRole)
         if session_dir:
             self.session_selected.emit(session_dir)
+
+    def _on_recent_context_menu(self, pos) -> None:
+        item = self._recent_tree.itemAt(pos)
+        if item is None:
+            return
+        session_dir = item.data(0, Qt.UserRole)
+        if not session_dir:
+            return
+        menu = QMenu(self)
+        remove_action = menu.addAction("Remove from History")
+        action = menu.exec(self._recent_tree.viewport().mapToGlobal(pos))
+        if action is remove_action:
+            self.session_removed.emit(session_dir)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         mime = event.mimeData()

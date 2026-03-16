@@ -90,8 +90,11 @@ class MPRPanel(QWidget):
 
         Builds VTK image data once and shares it across viewers to avoid
         tripling memory usage for the numpy→VTK copy.
+        The flattened array is kept alive here so that VTK's zero-copy
+        pointer remains valid for all three viewers.
         """
-        vtk_image = self._axial._numpy_to_vtk_image(volume, spacing)
+        self._vtk_flat = np.ascontiguousarray(volume, dtype=np.float32).ravel()
+        vtk_image = self._axial._build_vtk_image_data(volume, spacing, self._vtk_flat)
         for viewer in (self._axial, self._coronal, self._sagittal):
             viewer.set_volume_from_vtk(volume, spacing, vtk_image)
 

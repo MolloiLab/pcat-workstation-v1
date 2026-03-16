@@ -207,7 +207,8 @@ class VTKSliceView(QWidget):
 
     def set_volume(self, volume: np.ndarray, spacing: list) -> None:
         """Load a numpy volume (Z, Y, X) float32 with given spacing [sz, sy, sx]."""
-        vtk_image = self._numpy_to_vtk_image(volume, spacing)
+        self._vtk_flat = np.ascontiguousarray(volume, dtype=np.float32).ravel()
+        vtk_image = self._build_vtk_image_data(volume, spacing, self._vtk_flat)
         self.set_volume_from_vtk(volume, spacing, vtk_image)
 
     def set_volume_from_vtk(
@@ -229,11 +230,13 @@ class VTKSliceView(QWidget):
         self.set_slice(mid)
         self.reset_camera()
 
-    def _numpy_to_vtk_image(self, volume: np.ndarray, spacing: list) -> vtkImageData:
-        """Convert numpy array (Z, Y, X) to vtkImageData.
+    def _build_vtk_image_data(
+        self, volume: np.ndarray, spacing: list, flat_array: np.ndarray
+    ) -> vtkImageData:
+        """Build vtkImageData from a pre-flattened numpy array.
 
-        Spacing list is [sz, sy, sx] matching numpy axis order.
-        VTK expects (X, Y, Z) ordering.
+        *flat_array* must be a contiguous float32 ravel of *volume*.
+        The caller is responsible for keeping *flat_array* alive (deep=False).
         """
         nz, ny, nx = volume.shape
 
@@ -242,11 +245,7 @@ class VTKSliceView(QWidget):
         vtk_image.SetSpacing(spacing[2], spacing[1], spacing[0])  # sx, sy, sz
         vtk_image.SetOrigin(0.0, 0.0, 0.0)
 
-        # Flatten in C order (row-major), which maps to VTK's expected x-fastest order.
-        # deep=False avoids a 400MB copy; the numpy array is kept alive via
-        # self._volume so VTK's pointer stays valid.
-        self._vtk_flat = np.ascontiguousarray(volume, dtype=np.float32).ravel()
-        vtk_arr = numpy_to_vtk(self._vtk_flat, deep=False, array_type=10)  # VTK_FLOAT = 10
+        vtk_arr = numpy_to_vtk(flat_array, deep=False, array_type=10)  # VTK_FLOAT = 10
         vtk_arr.SetNumberOfComponents(1)
         vtk_image.GetPointData().SetScalars(vtk_arr)
 
@@ -381,9 +380,11 @@ class VTKSliceView(QWidget):
     # ── Render helper ───────────────────────────────────────────────
 
     def _render(self) -> None:
-        render_window = self._vtk_widget.GetRenderWindow()
-        if render_window:
-            render_window.Render()
+        # Use Qt's update() instead of direct Render() to avoid blocking
+        # the event loop on macOS.  The QVTKRenderWindowInteractor.paintEvent
+        # already calls _Iren.Render(), so this triggers a proper render
+        # through Qt's paint cycle.
+        self._vtk_widget.update()
 
     # ── Cleanup ─────────────────────────────────────────────────────
 

@@ -147,6 +147,7 @@ class MainWindow(QMainWindow):
         # DICOM browser signals
         self._dicom_browser.dicom_imported.connect(self._on_dicom_imported)
         self._dicom_browser.session_selected.connect(self._on_session_selected)
+        self._dicom_browser.session_removed.connect(self._on_session_removed)
 
         # Progress panel
         self._progress_panel.run_clicked.connect(self._on_run_pipeline)
@@ -463,6 +464,12 @@ class MainWindow(QMainWindow):
         """Handle CPR view request from results summary."""
         self._central_stack.setCurrentIndex(0)  # Back to viewer
         self._toolbar.set_vessel(vessel)
+
+    @Slot(str)
+    def _on_session_removed(self, session_dir: str) -> None:
+        """Remove a session from the recent projects list."""
+        self._dicom_index.remove_recent(Path(session_dir))
+        self._load_recent_projects()
 
     @Slot()
     def _on_about(self) -> None:
