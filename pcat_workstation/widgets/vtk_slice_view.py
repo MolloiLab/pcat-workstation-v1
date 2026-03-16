@@ -12,105 +12,119 @@ from vtkmodules.vtkRenderingCore import (
     vtkImageSliceMapper,
     vtkImageProperty,
 )
-from vtkmodules.vtkInteractionStyle import vtkInteractorStyleImage
 from vtk.util.numpy_support import numpy_to_vtk
 from typing import Optional
 
 
-class SliceInteractorStyle(vtkInteractorStyleImage):
-    """Custom interactor style for medical image slice viewing.
+class _SafeVTKWidget(QVTKRenderWindowInteractor):
+    """QVTKRenderWindowInteractor subclass safe for macOS.
 
-    - Right-drag: window/level (horizontal=width, vertical=level)
-    - Scroll: change slice
-    - Ctrl+scroll: zoom
-    - Middle-drag: pan
-    - Left-click: emit crosshair position
+    On macOS the stock widget enters an infinite paint loop after the
+    interactor is initialized/enabled:
+      paintEvent → Render() → resizeEvent → update() → paintEvent …
+    This starves the Qt event loop so timers and user events never fire.
+
+    Fix: override paintEvent and resizeEvent with reentrancy-safe versions
+    that break the cycle, and handle mouse/scroll events via Qt signals
+    instead of VTK's observer system (which requires Initialize()).
     """
 
-    def __init__(self, viewer: "VTKSliceView") -> None:
-        super().__init__()
-        self._viewer = viewer
+    # Signals for the owning VTKSliceView to connect to
+    scroll_event = Signal(int)           # delta: +1 forward, -1 backward
+    right_drag_event = Signal(int, int)  # dx, dy from drag start
+    right_press_event = Signal()
+    right_release_event = Signal()
+    left_click_event = Signal()
+    ctrl_scroll_event = Signal(int)      # +1 zoom in, -1 zoom out
+
+    def __init__(self, parent=None, **kw):
+        super().__init__(parent, **kw)
+        self._render_pending = False
+        self._in_render = False
         self._right_dragging = False
-        self._right_drag_start = (0, 0)
-        self._wl_start = (1500.0, 300.0)
+        self._right_start = (0, 0)
 
-        self.AddObserver("MouseWheelForwardEvent", self._on_scroll_forward)
-        self.AddObserver("MouseWheelBackwardEvent", self._on_scroll_backward)
-        self.AddObserver("RightButtonPressEvent", self._on_right_press)
-        self.AddObserver("RightButtonReleaseEvent", self._on_right_release)
-        self.AddObserver("MouseMoveEvent", self._on_mouse_move)
-        self.AddObserver("MiddleButtonPressEvent", self._on_middle_press)
-        self.AddObserver("MiddleButtonReleaseEvent", self._on_middle_release)
-        self.AddObserver("LeftButtonPressEvent", self._on_left_press)
-        self.AddObserver("LeftButtonReleaseEvent", self._on_left_release)
+    def request_render(self):
+        """Schedule a VTK render after a short delay.
 
-    # ── Scroll ──────────────────────────────────────────────────────
+        Uses singleShot(16) (~60fps) to coalesce rapid render requests
+        and give the macOS event loop time between renders.  Without this
+        delay, back-to-back Render() calls across multiple VTK widgets
+        starve the Qt event loop.
+        """
+        if self._render_pending:
+            return
+        self._render_pending = True
+        from PySide6.QtCore import QTimer as _QTimer
+        _QTimer.singleShot(16, self._do_render)
 
-    def _on_scroll_forward(self, obj, event) -> None:
-        interactor = self.GetInteractor()
-        if interactor.GetControlKey():
-            # Ctrl+scroll: zoom in
-            self._viewer._vtk_renderer.GetActiveCamera().Zoom(1.1)
-            self._viewer._render()
-        else:
-            self._viewer._on_scroll(delta=-1)
+    def _do_render(self):
+        self._render_pending = False
+        if self._in_render:
+            return
+        self._in_render = True
+        try:
+            self._RenderWindow.Render()
+        finally:
+            self._in_render = False
 
-    def _on_scroll_backward(self, obj, event) -> None:
-        interactor = self.GetInteractor()
-        if interactor.GetControlKey():
-            # Ctrl+scroll: zoom out
-            self._viewer._vtk_renderer.GetActiveCamera().Zoom(0.9)
-            self._viewer._render()
-        else:
-            self._viewer._on_scroll(delta=1)
-
-    # ── Right-drag: window/level ────────────────────────────────────
-
-    def _on_right_press(self, obj, event) -> None:
-        self._right_dragging = True
-        interactor = self.GetInteractor()
-        self._right_drag_start = interactor.GetEventPosition()
-        self._wl_start = self._viewer.get_window_level()
-
-    def _on_right_release(self, obj, event) -> None:
-        self._right_dragging = False
-
-    # ── Middle-drag: pan ────────────────────────────────────────────
-
-    def _on_middle_press(self, obj, event) -> None:
-        self.StartPan()
-        self.OnMiddleButtonDown()
-
-    def _on_middle_release(self, obj, event) -> None:
-        self.EndPan()
-        self.OnMiddleButtonUp()
-
-    # ── Left-click: crosshair ──────────────────────────────────────
-
-    def _on_left_press(self, obj, event) -> None:
-        self._viewer._emit_crosshair_at_cursor()
-
-    def _on_left_release(self, obj, event) -> None:
+    def CreateTimer(self, obj, evt):
         pass
 
-    # ── Mouse move ──────────────────────────────────────────────────
+    def paintEvent(self, ev):
+        # No-op: rendering is driven by _render_timer, not paint events
+        pass
 
-    def _on_mouse_move(self, obj, event) -> None:
+    def resizeEvent(self, ev):
+        if self._in_render:
+            return
+        scale = self._getPixelRatio()
+        w = int(round(scale * self.width()))
+        h = int(round(scale * self.height()))
+        self._RenderWindow.SetDPI(int(round(72 * scale)))
+        from vtkmodules.vtkRenderingCore import vtkRenderWindow
+        vtkRenderWindow.SetSize(self._RenderWindow, w, h)
+        self._Iren.SetSize(w, h)
+        self._Iren.ConfigureEvent()
+        self.request_render()
+
+    # ── Qt event handlers (bypass VTK interactor) ────────────────
+
+    def wheelEvent(self, ev):
+        from PySide6.QtCore import Qt as _Qt
+        delta = ev.angleDelta().y()
+        if ev.modifiers() & _Qt.ControlModifier:
+            self.ctrl_scroll_event.emit(1 if delta > 0 else -1)
+        elif delta > 0:
+            self.scroll_event.emit(1)
+        elif delta < 0:
+            self.scroll_event.emit(-1)
+        ev.accept()
+
+    def mousePressEvent(self, ev):
+        from PySide6.QtCore import Qt as _Qt
+        if ev.button() == _Qt.RightButton:
+            self._right_dragging = True
+            self._right_start = (ev.position().x(), ev.position().y())
+            self.right_press_event.emit()
+        elif ev.button() == _Qt.LeftButton:
+            self.left_click_event.emit()
+        ev.accept()
+
+    def mouseReleaseEvent(self, ev):
+        from PySide6.QtCore import Qt as _Qt
+        if ev.button() == _Qt.RightButton:
+            self._right_dragging = False
+            self.right_release_event.emit()
+        ev.accept()
+
+    def mouseMoveEvent(self, ev):
         if self._right_dragging:
-            self._handle_right_drag()
-        else:
-            self.OnMouseMove()
-
-    def _handle_right_drag(self) -> None:
-        interactor = self.GetInteractor()
-        x, y = interactor.GetEventPosition()
-        dx = x - self._right_drag_start[0]
-        dy = y - self._right_drag_start[1]
-
-        w0, l0 = self._wl_start
-        new_window = max(1.0, w0 + dx * 2.0)
-        new_level = l0 + dy * 2.0
-        self._viewer.set_window_level(new_window, new_level)
+            x, y = ev.position().x(), ev.position().y()
+            dx = int(x - self._right_start[0])
+            dy = int(y - self._right_start[1])
+            self.right_drag_event.emit(dx, dy)
+        ev.accept()
 
 
 class VTKSliceView(QWidget):
@@ -162,8 +176,8 @@ class VTKSliceView(QWidget):
         self._header.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         layout.addWidget(self._header)
 
-        # VTK render widget
-        self._vtk_widget = QVTKRenderWindowInteractor(self)
+        # VTK render widget (guarded against reentrant render on macOS)
+        self._vtk_widget = _SafeVTKWidget(self)
         layout.addWidget(self._vtk_widget, stretch=1)
 
     # ── VTK pipeline ────────────────────────────────────────────────
@@ -192,16 +206,29 @@ class VTKSliceView(QWidget):
         self._image_slice.SetProperty(self._image_property)
         self._actor_added = False
 
-        # Interactor style
-        self._interactor_style = SliceInteractorStyle(self)
-        interactor = self._vtk_widget.GetRenderWindow().GetInteractor()
-        interactor.SetInteractorStyle(self._interactor_style)
+        # Connect Qt-level mouse/scroll signals from the safe widget
+        self._wl_start = (self._window, self._level)
+        self._vtk_widget.scroll_event.connect(self._on_scroll)
+        self._vtk_widget.ctrl_scroll_event.connect(self._on_ctrl_scroll)
+        self._vtk_widget.right_press_event.connect(self._on_right_press)
+        self._vtk_widget.right_drag_event.connect(self._on_right_drag)
+        self._vtk_widget.left_click_event.connect(self._emit_crosshair_at_cursor)
 
     def start_interactor(self) -> None:
-        """Initialize the VTK interactor. Call after the widget is shown."""
-        interactor = self._vtk_widget.GetRenderWindow().GetInteractor()
-        interactor.Initialize()
-        interactor.SetEnableRender(True)
+        """No-op — events are handled via Qt signals, not VTK interactor."""
+        pass
+
+    def _on_ctrl_scroll(self, direction: int) -> None:
+        factor = 1.1 if direction > 0 else 0.9
+        self._vtk_renderer.GetActiveCamera().Zoom(factor)
+        self._render()
+
+    def _on_right_press(self) -> None:
+        self._wl_start = (self._window, self._level)
+
+    def _on_right_drag(self, dx: int, dy: int) -> None:
+        w0, l0 = self._wl_start
+        self.set_window_level(max(1.0, w0 + dx * 2.0), l0 + dy * 2.0)
 
     # ── Volume loading ──────────────────────────────────────────────
 
@@ -381,11 +408,7 @@ class VTKSliceView(QWidget):
     # ── Render helper ───────────────────────────────────────────────
 
     def _render(self) -> None:
-        # Use Qt's update() instead of direct vtkRenderWindow.Render() to
-        # avoid blocking the event loop on macOS.  paintEvent already calls
-        # _Iren.Render().  update() coalesces rapid calls (e.g. during W/L
-        # drag) into a single paint, which is both safe and efficient.
-        self._vtk_widget.update()
+        self._vtk_widget.request_render()
 
     # ── Cleanup ─────────────────────────────────────────────────────
 
