@@ -208,7 +208,7 @@ class VTKSliceView(QWidget):
     def set_volume(self, volume: np.ndarray, spacing: list) -> None:
         """Load a numpy volume (Z, Y, X) float32 with given spacing [sz, sy, sx]."""
         self._vtk_flat = np.ascontiguousarray(volume, dtype=np.float32).ravel()
-        vtk_image = self._build_vtk_image_data(volume, spacing, self._vtk_flat)
+        vtk_image = VTKSliceView.build_vtk_image_data(volume, spacing, self._vtk_flat)
         self.set_volume_from_vtk(volume, spacing, vtk_image)
 
     def set_volume_from_vtk(
@@ -230,8 +230,9 @@ class VTKSliceView(QWidget):
         self.set_slice(mid)
         self.reset_camera()
 
-    def _build_vtk_image_data(
-        self, volume: np.ndarray, spacing: list, flat_array: np.ndarray
+    @staticmethod
+    def build_vtk_image_data(
+        volume: np.ndarray, spacing: list, flat_array: np.ndarray
     ) -> vtkImageData:
         """Build vtkImageData from a pre-flattened numpy array.
 
@@ -380,10 +381,10 @@ class VTKSliceView(QWidget):
     # ── Render helper ───────────────────────────────────────────────
 
     def _render(self) -> None:
-        # Use Qt's update() instead of direct Render() to avoid blocking
-        # the event loop on macOS.  The QVTKRenderWindowInteractor.paintEvent
-        # already calls _Iren.Render(), so this triggers a proper render
-        # through Qt's paint cycle.
+        # Use Qt's update() instead of direct vtkRenderWindow.Render() to
+        # avoid blocking the event loop on macOS.  paintEvent already calls
+        # _Iren.Render().  update() coalesces rapid calls (e.g. during W/L
+        # drag) into a single paint, which is both safe and efficient.
         self._vtk_widget.update()
 
     # ── Cleanup ─────────────────────────────────────────────────────

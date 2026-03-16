@@ -94,7 +94,7 @@ class MPRPanel(QWidget):
         pointer remains valid for all three viewers.
         """
         self._vtk_flat = np.ascontiguousarray(volume, dtype=np.float32).ravel()
-        vtk_image = self._axial._build_vtk_image_data(volume, spacing, self._vtk_flat)
+        vtk_image = VTKSliceView.build_vtk_image_data(volume, spacing, self._vtk_flat)
         for viewer in (self._axial, self._coronal, self._sagittal):
             viewer.set_volume_from_vtk(volume, spacing, vtk_image)
 

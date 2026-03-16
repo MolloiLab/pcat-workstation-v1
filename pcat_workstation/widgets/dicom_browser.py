@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QMenu,
 )
 from PySide6.QtCore import Signal, Qt, QMimeData
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QAction
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from pathlib import Path
 from typing import Optional, Dict, List
 
@@ -246,6 +246,8 @@ class DicomBrowser(QWidget):
         remove_action = menu.addAction("Remove from History")
         action = menu.exec(self._recent_tree.viewport().mapToGlobal(pos))
         if action is remove_action:
+            idx = self._recent_tree.indexOfTopLevelItem(item)
+            self._recent_tree.takeTopLevelItem(idx)
             self.session_removed.emit(session_dir)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
