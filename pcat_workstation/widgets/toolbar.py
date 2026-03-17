@@ -1,4 +1,4 @@
-"""Main toolbar with vessel selector, mode, W/L presets, and action buttons."""
+"""Main toolbar with vessel selector, W/L presets, and action buttons."""
 
 from PySide6.QtWidgets import (
     QToolBar, QWidget, QHBoxLayout, QLabel, QPushButton,
@@ -23,7 +23,6 @@ class MainToolBar(QToolBar):
     """Top toolbar for the PCAT Workstation main window."""
 
     vessel_changed = Signal(str)       # "LAD", "LCx", "RCA"
-    mode_changed = Signal(str)         # "view", "edit"
     wl_preset_changed = Signal(float, float)  # (window, level)
     run_clicked = Signal()
     export_clicked = Signal()
@@ -35,7 +34,6 @@ class MainToolBar(QToolBar):
         self.setFixedHeight(40)
 
         self._vessel_buttons: dict[str, QToolButton] = {}
-        self._mode_buttons: dict[str, QToolButton] = {}
 
         self._build_ui()
 
@@ -67,25 +65,6 @@ class MainToolBar(QToolBar):
             self.addWidget(btn)
 
         self._vessel_buttons["LAD"].setChecked(True)
-
-        self.addSeparator()
-
-        # --- Mode selector ---
-        self._mode_group = QButtonGroup(self)
-        self._mode_group.setExclusive(True)
-
-        for mode_name, label in [("view", "View"), ("edit", "Edit")]:
-            btn = QToolButton()
-            btn.setText(label)
-            btn.setCheckable(True)
-            btn.setMinimumHeight(32)
-            btn.setStyleSheet(self._mode_button_style())
-            btn.toggled.connect(lambda checked, m=mode_name: self._on_mode_toggled(m, checked))
-            self._mode_group.addButton(btn)
-            self._mode_buttons[mode_name] = btn
-            self.addWidget(btn)
-
-        self._mode_buttons["view"].setChecked(True)
 
         self.addSeparator()
 
@@ -159,12 +138,6 @@ class MainToolBar(QToolBar):
         if btn:
             btn.setChecked(True)
 
-    def set_mode(self, mode: str) -> None:
-        """Programmatically select view/edit mode."""
-        btn = self._mode_buttons.get(mode)
-        if btn:
-            btn.setChecked(True)
-
     def set_run_enabled(self, enabled: bool) -> None:
         """Enable or disable the run button."""
         self._run_btn.setEnabled(enabled)
@@ -183,10 +156,6 @@ class MainToolBar(QToolBar):
                     self._vessel_button_style(c, checked=(v == vessel))
                 )
             self.vessel_changed.emit(vessel)
-
-    def _on_mode_toggled(self, mode: str, checked: bool) -> None:
-        if checked:
-            self.mode_changed.emit(mode)
 
     def _on_wl_changed(self, index: int) -> None:
         data = self._wl_combo.itemData(index)
@@ -228,23 +197,3 @@ class MainToolBar(QToolBar):
                 }}
             """
 
-    @staticmethod
-    def _mode_button_style() -> str:
-        return """
-            QToolButton {
-                background-color: transparent;
-                color: #e5e5e7;
-                border: 1px solid #38383a;
-                border-radius: 3px;
-                padding: 4px 12px;
-                font-size: 13pt;
-            }
-            QToolButton:checked {
-                background-color: #0a84ff;
-                color: #ffffff;
-                border: none;
-            }
-            QToolButton:hover:!checked {
-                background-color: #3a3a3c;
-            }
-        """

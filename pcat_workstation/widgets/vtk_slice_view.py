@@ -580,27 +580,17 @@ class VTKSliceView(QWidget):
     def set_edit_mode(self, enabled: bool) -> None:
         """Toggle edit mode on/off.
 
-        When enabled, left-click no longer sets the crosshair; instead
-        mouse events are forwarded to the attached ``SeedEditController``.
+        When enabled, mouse events are forwarded to the attached
+        ``SeedEditController`` in addition to crosshair navigation.
+        Crosshair on click remains active so clicking empty space
+        still navigates.
         """
         if enabled == self._edit_mode:
             return
         self._edit_mode = enabled
 
-        if enabled:
-            # Disconnect crosshair placement from left click
-            try:
-                self._vtk_widget.left_click_event.disconnect(
-                    self._emit_crosshair_at_cursor
-                )
-            except RuntimeError:
-                pass  # already disconnected
-            # Controller connections are set up by set_edit_controller
-        else:
-            # Restore crosshair on left click
-            self._vtk_widget.left_click_event.connect(
-                self._emit_crosshair_at_cursor
-            )
+        if not enabled:
+            # Leaving edit mode — clear selection highlights
             self.clear_selection_highlight()
 
     def set_edit_controller(self, controller) -> None:

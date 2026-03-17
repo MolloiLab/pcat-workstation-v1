@@ -173,9 +173,6 @@ class MainWindow(QMainWindow):
         # Toolbar — Export PDF report
         self._toolbar.export_clicked.connect(self._on_export)
 
-        # Toolbar — View/Edit mode toggle
-        self._toolbar.mode_changed.connect(self._on_mode_changed)
-
         # MPR panel
         self._mpr_panel.window_level_changed.connect(self._on_viewer_wl_changed)
 
@@ -549,22 +546,31 @@ class MainWindow(QMainWindow):
         """Handle seed data from the pipeline.
 
         *seeds_dict* is ``{vessel: {"ostium": [z,y,x], "waypoints": [[z,y,x], ...]}}``
-        (new extended format).  We convert to the flat ``{vessel: [z,y,x]}``
-        format that ``set_seed_overlay`` expects and store the full dict for
-        edit-mode use.
+        (new extended format).  We save the full dict and auto-enable edit
+        mode so seeds are immediately interactive.
         """
         meta = self._session.get_meta() if self._session else None
-        if meta:
-            spacing = meta["spacing_mm"]
-            # Convert to flat format for the basic overlay
-            flat_seeds = {}
-            for v, data in seeds_dict.items():
-                if isinstance(data, dict):
-                    flat_seeds[v] = data["ostium"]
-                else:
-                    flat_seeds[v] = data  # backward compat
+        if not meta:
+            return
+        spacing = meta["spacing_mm"]
+        volume = self._session.get_volume()
+
+        # Convert to flat format for basic overlay (backward compat)
+        flat_seeds = {}
+        for v, data in seeds_dict.items():
+            if isinstance(data, dict):
+                flat_seeds[v] = data["ostium"]
+            else:
+                flat_seeds[v] = data
+
+        # Save full format
+        self._save_overlays(seeds=seeds_dict)
+
+        # Auto-enable edit mode with extended seed display
+        if volume is not None:
+            self._enable_seed_editing(seeds_dict, spacing, volume.shape)
+        else:
             self._mpr_panel.set_seed_overlay(flat_seeds, spacing)
-            self._save_overlays(seeds=seeds_dict)  # save full format
 
     @Slot(object)
     def _on_centerlines_ready(self, centerlines_dict: dict) -> None:
@@ -717,70 +723,27 @@ class MainWindow(QMainWindow):
             if parent_dock:
                 parent_dock.setVisible(not parent_dock.isVisible())
 
-    @Slot(str)
-    def _on_mode_changed(self, mode: str) -> None:
-        """Handle View/Edit mode toggle from toolbar."""
-        if mode == "edit":
-            # Create SeedEditState from current pipeline seeds
-            meta = self._session.get_meta() if self._session else None
-            if meta is None:
-                self.statusBar().showMessage("Load a patient first")
-                self._toolbar.set_mode("view")
-                return
+    def _enable_seed_editing(self, seeds_dict: dict, spacing: list, volume_shape: tuple) -> None:
+        """Set up SeedEditState + Controller for interactive seed editing."""
+        # Clean up any existing edit state
+        if self._edit_state is not None:
+            self._edit_state.save_to_session(self._session)
 
-            spacing = meta.get("spacing_mm", [1.0, 1.0, 1.0])
-            volume = self._session.get_volume() if self._session else None
-            if volume is None:
-                self.statusBar().showMessage("No volume loaded")
-                self._toolbar.set_mode("view")
-                return
+        self._edit_state = SeedEditState(seeds_dict, spacing, volume_shape)
 
-            # Get existing seeds from overlays
-            seeds_dict = {}
-            overlay_path = self._session.session_dir / "overlays.npz"
-            if overlay_path.exists():
-                try:
-                    data = np.load(str(overlay_path), allow_pickle=True)
-                    if "seeds" in data:
-                        seeds_dict = data["seeds"].item()
-                except Exception:
-                    pass
+        viewers = self._mpr_panel.get_viewers()
+        self._edit_controller = SeedEditController(
+            state=self._edit_state,
+            views=list(viewers.values()),
+            spacing=spacing,
+        )
+        self._edit_controller.request_pipeline_rerun.connect(self._on_edit_rerun)
 
-            if not seeds_dict:
-                self.statusBar().showMessage("Run pipeline seeds stage first")
-                self._toolbar.set_mode("view")
-                return
+        self._mpr_panel.set_edit_controller(self._edit_controller)
+        self._mpr_panel.set_edit_mode(True)
+        self._mpr_panel.refresh_seed_overlay(self._edit_state)
 
-            self._edit_state = SeedEditState(
-                seeds_dict, spacing, volume.shape
-            )
-
-            viewers = self._mpr_panel.get_viewers()
-            self._edit_controller = SeedEditController(
-                state=self._edit_state,
-                views=list(viewers.values()),
-                spacing=spacing,
-            )
-
-            # Connect pipeline rerun request
-            self._edit_controller.request_pipeline_rerun.connect(self._on_edit_rerun)
-
-            self._mpr_panel.set_edit_controller(self._edit_controller)
-            self._mpr_panel.set_edit_mode(True)
-            self._mpr_panel.refresh_seed_overlay(self._edit_state)
-
-            self._central_stack.setCurrentIndex(0)  # Show viewer
-            self.statusBar().showMessage("Edit mode — click seeds to select, drag to move")
-
-        else:  # "view"
-            if self._edit_state is not None:
-                # Save seeds to session
-                self._edit_state.save_to_session(self._session)
-
-            self._mpr_panel.set_edit_mode(False)
-            self._edit_state = None
-            self._edit_controller = None
-            self.statusBar().showMessage("View mode")
+        self.statusBar().showMessage("Seeds loaded \u2014 click to select, drag to move")
 
     @Slot()
     def _on_edit_rerun(self) -> None:
@@ -795,10 +758,7 @@ class MainWindow(QMainWindow):
         for stage in ["centerlines", "contours", "pcat_voi", "statistics"]:
             self._session.set_stage_status(stage, "pending")
 
-        # Switch back to view mode
-        self._toolbar.set_mode("view")
-
-        # Re-run pipeline
+        # Re-run pipeline (edit mode stays active; seeds_ready will refresh it)
         self._on_run_pipeline()
 
     # ------------------------------------------------------------------ #
@@ -842,7 +802,12 @@ class MainWindow(QMainWindow):
                         flat_seeds[v] = sd["ostium"]
                     else:
                         flat_seeds[v] = sd  # backward compat
-                self._mpr_panel.set_seed_overlay(flat_seeds, spacing)
+                # Auto-enable editing if volume is loaded
+                volume = self._session.get_volume() if self._session else None
+                if volume is not None:
+                    self._enable_seed_editing(raw_seeds, spacing, volume.shape)
+                else:
+                    self._mpr_panel.set_seed_overlay(flat_seeds, spacing)
 
             # Centerlines
             if "centerlines" in data:

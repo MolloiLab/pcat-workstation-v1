@@ -115,6 +115,8 @@ class SeedEditController(QObject):
         else:
             self._state.clear_selection()
             self._dragging = False
+            # No seed hit — crosshair navigation happens automatically
+            # via left_click_event -> _emit_crosshair_at_cursor (kept connected)
 
     def on_left_drag(
         self, view: VTKSliceView, qt_x: int, qt_y: int
