@@ -49,6 +49,7 @@ class PipelineWorker(QThread):
     cpr_frame_ready = Signal(str, object)  # (vessel, dict with N_frame, B_frame, positions_mm, arclengths)
     radii_ready = Signal(object)  # {vessel: radii_mm_array}
     voi_masks_ready = Signal(object)
+    analysis_data_ready = Signal(str, object)  # (vessel, dict with hu_values, distances_mm, mean_hu)
 
     def __init__(
         self,
@@ -439,6 +440,21 @@ class PipelineWorker(QThread):
                         f"  {vessel}: mean_HU={stats['hu_mean']:.1f}, "
                         f"fat_fraction={100*stats['fat_fraction']:.1f}%"
                     )
+
+                    # Compute radial profile and emit analysis data
+                    try:
+                        from pipeline.radial_profile import compute_radial_profile
+                        hu_values = volume[voi_mask].astype(np.float32)
+                        distances_mm, mean_hu = compute_radial_profile(
+                            volume, voi_mask, spacing_mm=spacing_mm,
+                        )
+                        self.analysis_data_ready.emit(vessel, {
+                            "hu_values": hu_values,
+                            "distances_mm": distances_mm,
+                            "mean_hu": mean_hu,
+                        })
+                    except Exception as prof_exc:
+                        self._emit(f"  {vessel} radial profile failed: {prof_exc}")
                 except Exception as exc:
                     self.stage_failed.emit(
                         "statistics", f"{vessel}: {exc}"

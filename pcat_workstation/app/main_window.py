@@ -463,6 +463,7 @@ class MainWindow(QMainWindow):
         worker.voi_masks_ready.connect(self._on_voi_masks_ready)
         worker.cpr_ready.connect(self._on_cpr_ready)
         worker.cpr_frame_ready.connect(self._on_cpr_frame_ready)
+        worker.analysis_data_ready.connect(self._on_analysis_data_ready)
 
     @Slot(str)
     def _on_stage_started(self, stage: str) -> None:
@@ -579,6 +580,15 @@ class MainWindow(QMainWindow):
     @Slot(str, object)
     def _on_cpr_frame_ready(self, vessel: str, frame_data: dict) -> None:
         self._mpr_panel.set_cpr_frame(vessel, frame_data)
+
+    @Slot(str, object)
+    def _on_analysis_data_ready(self, vessel: str, data: dict) -> None:
+        """Update the analysis dashboard with HU histogram and radial profile."""
+        self._analysis_dashboard.plot_histogram(data["hu_values"], vessel)
+        self._analysis_dashboard.plot_radial_profile(
+            data["distances_mm"], data["mean_hu"], vessel,
+        )
+        self._analysis_dashboard.set_collapsed(False)
 
     @Slot(str)
     def _on_vessel_changed(self, vessel: str) -> None:
