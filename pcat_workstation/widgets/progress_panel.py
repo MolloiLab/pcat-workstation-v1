@@ -4,7 +4,7 @@ import time
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QProgressBar, QFrame, QGroupBox,
+    QProgressBar, QFrame, QGroupBox, QPlainTextEdit,
 )
 from PySide6.QtCore import Signal, Qt, QTimer
 from typing import Dict
@@ -194,11 +194,34 @@ class ProgressPanel(QWidget):
         sep.setFixedHeight(2)
         layout.addWidget(sep)
 
-        # --- Vessel summary placeholder ---
-        self._vessel_group = QGroupBox("Vessel Summary")
+        # --- Progress log ---
+        self._progress_group = QGroupBox("Progress")
+        self._progress_group.setStyleSheet(
+            "QGroupBox { color: #98989d; font-size: 12pt; }"
+        )
+        progress_group_layout = QVBoxLayout(self._progress_group)
+        progress_group_layout.setContentsMargins(4, 4, 4, 4)
+        progress_group_layout.setSpacing(0)
+
+        self._progress_text = QPlainTextEdit()
+        self._progress_text.setReadOnly(True)
+        self._progress_text.setMaximumBlockCount(200)
+        self._progress_text.setStyleSheet(
+            "QPlainTextEdit { background-color: #1c1c1e; color: #8e8e93; "
+            "font-family: 'SF Mono', 'Menlo', monospace; font-size: 11pt; "
+            "border: 1px solid #38383a; }"
+        )
+        self._progress_text.setMinimumHeight(80)
+        self._progress_text.setMaximumHeight(160)
+        progress_group_layout.addWidget(self._progress_text)
+        layout.addWidget(self._progress_group)
+
+        # --- Vessel results (shown after pipeline completes) ---
+        self._vessel_group = QGroupBox("Vessel Results")
         self._vessel_layout = QVBoxLayout(self._vessel_group)
         self._vessel_layout.setContentsMargins(6, 6, 6, 6)
         self._vessel_layout.setSpacing(4)
+        self._vessel_group.setVisible(False)
         layout.addWidget(self._vessel_group)
 
         layout.addStretch(1)
@@ -222,26 +245,25 @@ class ProgressPanel(QWidget):
         if running:
             self._run_next_btn.setText("\u23F9  Running...")
             self._run_next_btn.setEnabled(False)
-            self._vessel_group.setTitle("Progress")
+            self.clear_progress()
             self.clear_vessel_summary()
+            self._vessel_group.setVisible(False)
         else:
             self._run_next_btn.setText("\u25B6  Run")
             self._run_next_btn.setEnabled(True)
-            self._vessel_group.setTitle("Vessel Summary")
 
     def set_progress_message(self, message: str) -> None:
         """Append a progress message to the log area."""
         if not message:
             return
-        if self._vessel_group.title() == "Progress":
-            while self._vessel_layout.count() >= 20:
-                item = self._vessel_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            lbl = QLabel(message)
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet("color: #98989d; font-size: 11pt;")
-            self._vessel_layout.addWidget(lbl)
+        self._progress_text.appendPlainText(message)
+        # Auto-scroll to bottom
+        sb = self._progress_text.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def clear_progress(self) -> None:
+        """Clear all text from the progress log."""
+        self._progress_text.clear()
 
     def set_run_enabled(self, enabled: bool) -> None:
         """Enable or disable the run (next step) button."""
@@ -271,6 +293,8 @@ class ProgressPanel(QWidget):
             item = self._vessel_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+
+        self._vessel_group.setVisible(bool(vessel_stats))
 
         for vessel_name, stats in vessel_stats.items():
             color = _VESSEL_COLORS.get(vessel_name, "#e0e0e0")
