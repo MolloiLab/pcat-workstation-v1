@@ -279,6 +279,7 @@ class ProgressPanel(QWidget):
             item = self._vessel_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        self._vessel_group.setVisible(False)
 
     def reset_stages(self) -> None:
         """Reset all stages to pending."""

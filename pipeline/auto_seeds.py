@@ -212,21 +212,12 @@ def run_totalsegmentator(
 
     print(f"[auto_seeds] Coronary mask saved: {mask_path}")
 
-    # ── Also run aorta segmentation (best-effort) ────────────────────────
+    # ── Also run aorta segmentation (best-effort, cached) ──────────────
     aorta_path: Optional[Path] = None
     try:
         aorta_output_dir = output_dir / "aorta_seg"
         aorta_output_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[auto_seeds] Running TotalSegmentator aorta segmentation (device={device}) …")
-        _ts_run(
-            input=str(nifti_input),
-            output=str(aorta_output_dir),
-            task="total",
-            roi_subset=["aorta"],
-            device=device,
-            quiet=False,
-            license_number=license_number,
-        )
+        # Check cache first — avoid re-running TotalSegmentator
         candidate = aorta_output_dir / "aorta.nii.gz"
         if not candidate.exists():
             alt = list(aorta_output_dir.rglob("aorta.nii.gz"))
@@ -234,9 +225,28 @@ def run_totalsegmentator(
                 candidate = alt[0]
         if candidate.exists():
             aorta_path = candidate
-            print(f"[auto_seeds] Aorta mask saved: {aorta_path}")
+            print(f"[auto_seeds] Aorta mask (cached): {aorta_path}")
         else:
-            print("[auto_seeds] Aorta segmentation produced no output — using fallback heuristic.")
+            print(f"[auto_seeds] Running TotalSegmentator aorta segmentation (device={device}) …")
+            _ts_run(
+                input=str(nifti_input),
+                output=str(aorta_output_dir),
+                task="total",
+                roi_subset=["aorta"],
+                device=device,
+                quiet=False,
+                license_number=license_number,
+            )
+            candidate = aorta_output_dir / "aorta.nii.gz"
+            if not candidate.exists():
+                alt = list(aorta_output_dir.rglob("aorta.nii.gz"))
+                if alt:
+                    candidate = alt[0]
+            if candidate.exists():
+                aorta_path = candidate
+                print(f"[auto_seeds] Aorta mask saved: {aorta_path}")
+            else:
+                print("[auto_seeds] Aorta segmentation produced no output — using fallback heuristic.")
     except Exception as e:
         print(f"[auto_seeds] Aorta segmentation failed ({e}) — using fallback heuristic.")
 

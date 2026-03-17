@@ -628,23 +628,18 @@ class MainWindow(QMainWindow):
         self._current_vessel = vessel
         self._mpr_panel.set_cpr_vessel(vessel)
 
-        # Sync edit state's current vessel
+        # Sync edit state and navigate to vessel's ostium
         if self._edit_state is not None:
             self._edit_state.current_vessel = vessel
-
-        # Navigate slice views to vessel's ostium position
-        if self._edit_state is not None:
             entry = self._edit_state.seeds.get(vessel)
             if entry and entry.get("ostium"):
                 ijk = entry["ostium"]
                 meta = self._session.get_meta() if self._session else None
                 if meta:
                     spacing = meta["spacing_mm"]
-                    # Convert voxel [z,y,x] to world mm [x,y,z] for VTK
                     x_mm = float(ijk[2]) * spacing[2]
                     y_mm = float(ijk[1]) * spacing[1]
                     z_mm = float(ijk[0]) * spacing[0]
-                    # Navigate all viewers
                     viewers = self._mpr_panel.get_viewers()
                     for view in viewers.values():
                         view.set_crosshair(x_mm, y_mm, z_mm)
@@ -747,9 +742,14 @@ class MainWindow(QMainWindow):
 
     def _enable_seed_editing(self, seeds_dict: dict, spacing: list, volume_shape: tuple) -> None:
         """Set up SeedEditState + Controller for interactive seed editing."""
-        # Clean up any existing edit state
+        # Clean up any existing edit state and disconnect old signals
         if self._edit_state is not None:
             self._edit_state.save_to_session(self._session)
+        if self._edit_controller is not None:
+            try:
+                self._edit_controller.request_pipeline_rerun.disconnect(self._on_edit_rerun)
+            except RuntimeError:
+                pass
 
         self._edit_state = SeedEditState(seeds_dict, spacing, volume_shape)
 
