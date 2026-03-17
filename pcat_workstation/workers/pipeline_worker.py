@@ -93,7 +93,12 @@ class PipelineWorker(QThread):
         return self.session.stage_status.get(stage) == "complete"
 
     def _emit(self, msg: str) -> None:
+        """Emit a progress message to the UI (clinician-facing)."""
         self.progress_message.emit(msg)
+
+    def _debug(self, msg: str) -> None:
+        """Print debug info to terminal only (developer-facing)."""
+        print(msg)
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -171,11 +176,17 @@ class PipelineWorker(QThread):
                 for v in self.vessels:
                     for key in (v, v.upper(), v.replace("x", "X")):
                         if key in seeds_data_raw and seeds_data_raw[key].get("ostium_ijk"):
-                            ijk = seeds_data_raw[key]["ostium_ijk"]
+                            entry = seeds_data_raw[key]
+                            ijk = entry["ostium_ijk"]
                             if all(c is not None for c in ijk):
-                                seed_points[v] = ijk
+                                seed_points[v] = {
+                                    "ostium": ijk,
+                                    "waypoints": entry.get("waypoints_ijk", []),
+                                }
                                 break
                 if seed_points:
+                    vessels_found = list(seed_points.keys())
+                    self._emit(f"Seeds found: {', '.join(vessels_found)}")
                     self.seeds_ready.emit(seed_points)
             except Exception as exc:
                 self._handle_stage_failure("seeds", exc)
@@ -199,7 +210,7 @@ class PipelineWorker(QThread):
             self.session.set_stage_status("centerlines", "running")
             try:
                 # Load centerline NPZ (previously the vesselness stage)
-                self._emit("Loading centerlines from seed data...")
+                self._debug("Loading centerlines from seed data...")
                 raw_dir = session_dir / "raw"
                 raw_dir.mkdir(parents=True, exist_ok=True)
                 npz_path = raw_dir / f"{prefix}_centerlines.npz"
@@ -220,13 +231,13 @@ class PipelineWorker(QThread):
                 for vessel in self.vessels:
                     self._emit(f"Processing {vessel} centerline...")
                     if vessel not in seeds_data:
-                        self._emit(f"  {vessel} not in seeds file -- skipping")
+                        self._debug(f"  {vessel} not in seeds file -- skipping")
                         continue
 
                     vsd = seeds_data[vessel]
                     ostium = vsd.get("ostium_ijk")
                     if not ostium or any(v is None for v in ostium):
-                        self._emit(f"  {vessel} has null seeds -- skipping")
+                        self._debug(f"  {vessel} has null seeds -- skipping")
                         continue
 
                     # Load full centerline from NPZ
@@ -240,7 +251,7 @@ class PipelineWorker(QThread):
                             centerline_full = cl_data[cl_key]
 
                     if centerline_full is None or len(centerline_full) < 3:
-                        self._emit(
+                        self._debug(
                             f"  {vessel} centerline not found or too short"
                         )
                         continue
@@ -256,14 +267,14 @@ class PipelineWorker(QThread):
                         length_mm=length_mm,
                     )
                     if len(centerline) < 5:
-                        self._emit(
+                        self._debug(
                             f"  {vessel} clipped centerline too short "
                             f"({len(centerline)} pts)"
                         )
                         continue
 
                     # Estimate radii
-                    self._emit(f"  Estimating {vessel} vessel radii...")
+                    self._debug(f"  Estimating {vessel} vessel radii...")
                     radii_mm = estimate_vessel_radii(
                         volume, centerline, spacing_mm
                     )
@@ -274,7 +285,7 @@ class PipelineWorker(QThread):
                         "proximal": centerline,
                         "radii": radii_mm,
                     }
-                    self._emit(
+                    self._debug(
                         f"  {vessel}: {len(centerline)} pts, "
                         f"mean radius {float(np.mean(radii_mm)):.2f} mm"
                     )
@@ -328,7 +339,7 @@ class PipelineWorker(QThread):
                         vessel_name=vessel,
                     )
                     self.vessel_contour_results[vessel] = contour_result
-                    self._emit(
+                    self._debug(
                         f"  {vessel} contours: r_eq mean="
                         f"{np.mean(contour_result.r_eq):.2f} mm"
                     )
@@ -371,7 +382,7 @@ class PipelineWorker(QThread):
                         "positions_mm": positions,  # (pixels_wide, 3)
                         "arclengths": arclengths,   # (pixels_wide,)
                     })
-                    self._emit(f"  {vessel} CPR generated ({n_w}x{n_h})")
+                    self._debug(f"  {vessel} CPR generated ({n_w}x{n_h})")
                 except Exception as exc:
                     self._emit(f"  {vessel} CPR failed: {exc}")
 
@@ -405,7 +416,7 @@ class PipelineWorker(QThread):
                         crisp_ring_mm=CRISP_RING_MM,
                     )
                     self.vessel_voi_masks[vessel] = voi_mask
-                    self._emit(
+                    self._debug(
                         f"  {vessel} VOI: {int(voi_mask.sum()):,} voxels"
                     )
                 except Exception as exc:

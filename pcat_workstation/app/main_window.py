@@ -546,10 +546,25 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _on_seeds_ready(self, seeds_dict: dict) -> None:
+        """Handle seed data from the pipeline.
+
+        *seeds_dict* is ``{vessel: {"ostium": [z,y,x], "waypoints": [[z,y,x], ...]}}``
+        (new extended format).  We convert to the flat ``{vessel: [z,y,x]}``
+        format that ``set_seed_overlay`` expects and store the full dict for
+        edit-mode use.
+        """
         meta = self._session.get_meta() if self._session else None
         if meta:
-            self._mpr_panel.set_seed_overlay(seeds_dict, meta["spacing_mm"])
-            self._save_overlays(seeds=seeds_dict)
+            spacing = meta["spacing_mm"]
+            # Convert to flat format for the basic overlay
+            flat_seeds = {}
+            for v, data in seeds_dict.items():
+                if isinstance(data, dict):
+                    flat_seeds[v] = data["ostium"]
+                else:
+                    flat_seeds[v] = data  # backward compat
+            self._mpr_panel.set_seed_overlay(flat_seeds, spacing)
+            self._save_overlays(seeds=seeds_dict)  # save full format
 
     @Slot(object)
     def _on_centerlines_ready(self, centerlines_dict: dict) -> None:
@@ -818,9 +833,16 @@ class MainWindow(QMainWindow):
         try:
             data = np.load(str(overlay_path), allow_pickle=True)
 
-            # Seeds
+            # Seeds (may be extended {vessel: {"ostium":..., "waypoints":...}} format)
             if "seeds" in data:
-                self._mpr_panel.set_seed_overlay(data["seeds"].item(), spacing)
+                raw_seeds = data["seeds"].item()
+                flat_seeds = {}
+                for v, sd in raw_seeds.items():
+                    if isinstance(sd, dict):
+                        flat_seeds[v] = sd["ostium"]
+                    else:
+                        flat_seeds[v] = sd  # backward compat
+                self._mpr_panel.set_seed_overlay(flat_seeds, spacing)
 
             # Centerlines
             if "centerlines" in data:
