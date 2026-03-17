@@ -282,7 +282,7 @@ class _CPRPanel(QWidget):
 
         # Wall boundaries: center +/- r_eq mapped to pixel column -> widget x
         # half_width_mm is the physical half-width of the CPR lateral axis (row_extent_mm).
-        half_width_mm = vdata.row_extent_mm or max(cpr_w * 0.15, 10.0)  # fallback for legacy
+        half_width_mm = vdata.row_extent_mm if vdata.row_extent_mm is not None else max(cpr_w * 0.15, 10.0)
 
         for i in range(n_pos - 1):
             y0 = self._y_for_index(i)
@@ -311,7 +311,7 @@ class _CPRPanel(QWidget):
 
         n_pos = len(r_eq)
         cpr_w = cpr_img.shape[1]
-        half_width_mm = vdata.row_extent_mm or max(cpr_w * 0.15, 10.0)  # fallback for legacy
+        half_width_mm = vdata.row_extent_mm if vdata.row_extent_mm is not None else max(cpr_w * 0.15, 10.0)
 
         pen = QPen(QColor("#00cc00"), 1.0, Qt.DashLine)
         p.setPen(pen)

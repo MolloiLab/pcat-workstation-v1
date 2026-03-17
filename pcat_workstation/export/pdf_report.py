@@ -102,8 +102,10 @@ def _draw_vessel_page(pdf, vessel, stats, cpr_image, hu_values):
     # CPR image (top half)
     if cpr_image is not None:
         ax_cpr = fig.add_axes([0.1, 0.50, 0.8, 0.40])
-        # Apply window/level
-        wl_img = np.clip((cpr_image - (-200)) / 1000.0, 0, 1)
+        # Apply vascular window/level (W=800, L=200)
+        low = 200.0 - 800.0 / 2.0  # -200
+        high = 200.0 + 800.0 / 2.0  # 600
+        wl_img = np.clip((cpr_image - low) / (high - low), 0, 1)
         ax_cpr.imshow(wl_img, cmap="gray", aspect="auto")
         ax_cpr.set_title(f"{vessel} CPR", fontsize=12)
         ax_cpr.set_xlabel("Lateral (pixels)")

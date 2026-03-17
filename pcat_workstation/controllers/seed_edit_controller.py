@@ -254,8 +254,8 @@ class SeedEditController(QObject):
 
     def _on_selection_changed(self) -> None:
         """Update selection highlight on all views."""
-        vessel = self._state._selected_vessel
-        seed_type = self._state._selected_type
+        vessel = self._state.selected_vessel
+        seed_type = self._state.selected_type
         index = (
             self._state.selected_idx
             if self._state.selected_idx is not None

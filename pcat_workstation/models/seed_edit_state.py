@@ -262,6 +262,16 @@ class SeedEditState(QObject):
         self.selected_idx = None
         self.selection_changed.emit()
 
+    @property
+    def selected_vessel(self) -> str:
+        """Currently selected vessel name (empty if none)."""
+        return self._selected_vessel
+
+    @property
+    def selected_type(self) -> str:
+        """Selected seed type: ``"ostium"``, ``"waypoint"``, or ``""``."""
+        return self._selected_type
+
     # ------------------------------------------------------------------
     # Undo / Redo
     # ------------------------------------------------------------------
@@ -334,12 +344,11 @@ class SeedEditState(QObject):
     def save_to_session(self, session) -> None:
         """Persist extended seeds into a :class:`PatientSession`.
 
-        Stores both the flat ostium-only dict (for pipeline compat) and
-        the full extended dict under ``_seed_edit_state``.
+        Stores the full extended dict in ``session.seeds_data`` and a flat
+        ostium-only dict for pipeline compatibility.
         """
-        # Store flat seeds for pipeline stages that only need ostia.
-        flat = self.get_all_seeds_flat()
-        if hasattr(session, "vessel_stats"):
-            session.vessel_stats["_seeds"] = flat
-            session.vessel_stats["_seeds_extended"] = copy.deepcopy(self.seeds)
+        session.seeds_data = {
+            "flat": self.get_all_seeds_flat(),
+            "extended": copy.deepcopy(self.seeds),
+        }
         session.save()

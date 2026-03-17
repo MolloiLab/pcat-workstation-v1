@@ -62,7 +62,10 @@ def compute_radial_profile(
     mean_hu = np.full(n_bins, np.nan)
 
     for i in range(n_bins):
-        mask = (d_vals >= bin_edges[i]) & (d_vals < bin_edges[i + 1])
+        if i < n_bins - 1:
+            mask = (d_vals >= bin_edges[i]) & (d_vals < bin_edges[i + 1])
+        else:
+            mask = (d_vals >= bin_edges[i]) & (d_vals <= bin_edges[i + 1])
         if mask.any():
             mean_hu[i] = float(np.mean(hu_vals[mask]))
 

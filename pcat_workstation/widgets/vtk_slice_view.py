@@ -990,9 +990,9 @@ class VTKSliceView(QWidget):
         """Orient camera for the current slice plane and fill the viewport.
 
         Follows ImageJ / radiology conventions:
-        - Axial:    look from superior, row 0 at top (ViewUp = 0,-1,0)
-        - Coronal:  look from anterior, superior at top (ViewUp = 0,0,1)
-        - Sagittal: look from right,    superior at top (ViewUp = 0,0,1)
+        - Axial:    look from inferior (feet), anterior at top (ViewUp = 0,-1,0)
+        - Coronal:  look from posterior (facing patient), superior at top (ViewUp = 0,0,1)
+        - Sagittal: look from right, superior at top (ViewUp = 0,0,1)
         Uses parallel projection so the image fills the widget like ImageJ.
         """
         if self._volume is None:
