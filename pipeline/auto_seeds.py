@@ -156,10 +156,10 @@ def run_totalsegmentator(
     output_dir: str | Path,
     device: str = _DEFAULT_DEVICE,
     license_number: Optional[str] = None,
-) -> Path:
+) -> Tuple[Path, Optional[Path]]:
     """
-    Run TotalSegmentator on the NIfTI volume and return path to the
-    coronary_arteries segmentation mask NIfTI.
+    Run TotalSegmentator on the NIfTI volume and return paths to the
+    coronary_arteries and (optionally) aorta segmentation mask NIfTIs.
 
     Parameters
     ----------
@@ -171,7 +171,7 @@ def run_totalsegmentator(
 
     Returns
     -------
-    Path to coronary_arteries.nii.gz (inside output_dir)
+    Tuple of (coronary_arteries.nii.gz path, aorta.nii.gz path or None)
     """
     if not HAS_TOTALSEG:
         raise RuntimeError(
@@ -210,8 +210,37 @@ def run_totalsegmentator(
                 f"in {output_dir}. Check for errors above."
             )
 
-    print(f"[auto_seeds] Mask saved: {mask_path}")
-    return mask_path
+    print(f"[auto_seeds] Coronary mask saved: {mask_path}")
+
+    # ── Also run aorta segmentation (best-effort) ────────────────────────
+    aorta_path: Optional[Path] = None
+    try:
+        aorta_output_dir = output_dir / "aorta_seg"
+        aorta_output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[auto_seeds] Running TotalSegmentator aorta segmentation (device={device}) …")
+        _ts_run(
+            input=str(nifti_input),
+            output=str(aorta_output_dir),
+            task="total",
+            roi_subset=["aorta"],
+            device=device,
+            quiet=False,
+            license_number=license_number,
+        )
+        candidate = aorta_output_dir / "aorta.nii.gz"
+        if not candidate.exists():
+            alt = list(aorta_output_dir.rglob("aorta.nii.gz"))
+            if alt:
+                candidate = alt[0]
+        if candidate.exists():
+            aorta_path = candidate
+            print(f"[auto_seeds] Aorta mask saved: {aorta_path}")
+        else:
+            print("[auto_seeds] Aorta segmentation produced no output — using fallback heuristic.")
+    except Exception as e:
+        print(f"[auto_seeds] Aorta segmentation failed ({e}) — using fallback heuristic.")
+
+    return mask_path, aorta_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -343,6 +372,7 @@ def _try_watershed_split(
 def separate_vessels(
     mask_zyx: np.ndarray,
     meta: Dict[str, Any],
+    aorta_center_zyx: Optional[np.ndarray] = None,
 ) -> Dict[str, np.ndarray]:
     """
     Split the combined coronary mask into LAD, LCX, RCA sub-masks.
@@ -428,23 +458,32 @@ def separate_vessels(
                 "Run seed_picker.py to add LCX/RCA seeds manually.",
                 RuntimeWarning,
             )
-    # ── Vessel assignment ────────────────────────────────────────────────
+    # ── Vessel assignment (angle-based relative to aorta center) ─────────
     #
-    # Strategy (handles the case where RCA is NOT among the 2 largest comps):
-    #   1. Top-2 by size → left coronaries (LAD + LCX).
-    #      Sorted by Y: smallest Y = anterior = LAD, largest Y = posterior = LCX.
-    #   2. RCA → largest component NOT in top-2 whose X centroid is clearly
-    #      to the patient-right of both left coronaries
-    #      (i.e. centroid[2] < min(LAD_x, LCX_x) - _RCA_X_MARGIN_VOX).
-    #   3. Fallback A: if no component satisfies the X constraint, pick the
-    #      one with the smallest X centroid among all remaining >= 200-vox comps.
-    #   4. Fallback B: if only 1–2 comps exist, fall back to legacy logic.
+    # Uses angular position of each component centroid relative to the aorta
+    # center in the axial (Y, X) plane:
+    #   - RCA exits the right anterior sinus: ~270-360° or 0-45°
+    #   - LAD exits the left anterior sinus:  ~45-150°
+    #   - LCx exits posterior to LAD:         ~150-270°
+    # Angle convention: 0°=anterior, 90°=patient-left, 180°=posterior, 270°=patient-right
     #
-    _RCA_X_MARGIN_VOX = 5  # RCA centroid must be >= 5 vox right of LAD/LCX
+    # Falls back to size+position heuristic when aorta center is unavailable.
+
     def _get_mask(c: dict) -> np.ndarray:
         if c.get("use_mask"):
             return c["mask"].astype(bool)
         return (labeled == c["id"]).astype(bool)
+
+    def _angular_distance(a: float, b: float) -> float:
+        """Shortest angular distance between two angles in degrees."""
+        d = abs(a - b) % 360
+        return min(d, 360 - d)
+
+    # Compute aorta center for angle-based assignment
+    if aorta_center_zyx is None:
+        aorta_center_zyx = _estimate_aorta_center(mask_zyx, meta)
+    aorta_yx = aorta_center_zyx[1:]  # [y, x]
+
     vessel_masks: Dict[str, np.ndarray] = {}
     if len(major) == 1:
         warnings.warn(
@@ -453,58 +492,55 @@ def separate_vessels(
         )
         vessel_masks["LAD"] = _get_mask(major[0])
     elif len(major) == 2:
-        # Only 2 comps: smallest X = RCA, largest X = LAD (best guess)
-        sorted2 = sorted(major, key=lambda c: c["centroid"][2])
-        vessel_masks["RCA"] = _get_mask(sorted2[0])
-        vessel_masks["LAD"] = _get_mask(sorted2[1])
+        # Compute angles for 2-component case
+        for comp in major:
+            cy, cx = comp["centroid"][1], comp["centroid"][2]
+            dx = cx - aorta_yx[1]
+            dy = cy - aorta_yx[0]
+            comp["angle_deg"] = np.degrees(np.arctan2(dx, -dy)) % 360
+
+        # RCA expected ~330°, LAD expected ~90°
+        # Assign by closest angular distance
+        sorted_by_rca = sorted(major, key=lambda c: _angular_distance(c["angle_deg"], 330))
+        vessel_masks["RCA"] = _get_mask(sorted_by_rca[0])
+        vessel_masks["LAD"] = _get_mask(sorted_by_rca[1])
+        for vn, comp in [("RCA", sorted_by_rca[0]), ("LAD", sorted_by_rca[1])]:
+            print(f"[auto_seeds]   {vn} angle: {comp['angle_deg']:.0f}°")
         warnings.warn(
             "Only 2 major components found; LCX unavailable. "
             "Run seed_picker.py to set separate LCX seeds.",
             RuntimeWarning,
         )
     else:
-        # ── Step 1: top-2 by size are the left coronaries ─────────────────
-        left_candidates = list(major[:2])
-        remaining = list(major[2:])
+        # ── Compute angle of each component centroid relative to aorta ────
+        for comp in major:
+            cy, cx = comp["centroid"][1], comp["centroid"][2]
+            dx = cx - aorta_yx[1]
+            dy = cy - aorta_yx[0]
+            # 0°=anterior, 90°=patient-left, 180°=posterior, 270°=patient-right
+            comp["angle_deg"] = np.degrees(np.arctan2(dx, -dy)) % 360
 
-        left_x_vals = [c["centroid"][2] for c in left_candidates]
-        left_x_min = min(left_x_vals)
+        # Expected angles for each vessel
+        expected = {"RCA": 330, "LAD": 90, "LCX": 200}
+        assigned: Dict[str, dict] = {}
+        remaining = list(major)
 
-        # ── Step 2: find RCA among remaining comps ────────────────────────
-        # Prefer a comp clearly to the patient-right of the left coronaries
-        rca_candidates = [
-            c for c in remaining
-            if c["centroid"][2] < left_x_min - _RCA_X_MARGIN_VOX
-        ]
-        if rca_candidates:
-            # Take the largest qualifying candidate
-            rca_comp = max(rca_candidates, key=lambda c: c["n_vox"])
-        elif remaining:
-            # Fallback A: no clear X separation — pick smallest-X remaining comp
-            rca_comp = min(remaining, key=lambda c: c["centroid"][2])
-            warnings.warn(
-                f"RCA X-centroid not clearly separated from left coronaries "
-                f"(left_x_min={left_x_min:.0f}). Using smallest-X remaining comp.",
-                RuntimeWarning,
-            )
-        else:
-            # Fallback B: no remaining comps — pull RCA from top-3 by X
-            top3 = sorted(major[:3], key=lambda c: c["centroid"][2])
-            rca_comp = top3[0]
-            left_candidates = list(top3[1:])
-            warnings.warn(
-                "RCA not found outside top-2 components; falling back to "
-                "smallest-X within top-3. Verify seeds visually.",
-                RuntimeWarning,
+        # Assign each vessel to the component with the closest angle
+        # Process in order: RCA first (most distinctive angle), then LAD, then LCX
+        for vessel in ["RCA", "LAD", "LCX"]:
+            if not remaining:
+                break
+            target_angle = expected[vessel]
+            best = min(remaining, key=lambda c: _angular_distance(c["angle_deg"], target_angle))
+            assigned[vessel] = best
+            remaining.remove(best)
+            print(
+                f"[auto_seeds]   {vessel} angle: {best['angle_deg']:.0f}° "
+                f"(target: {target_angle}°, delta: {_angular_distance(best['angle_deg'], target_angle):.0f}°)"
             )
 
-        # ── Step 3: assign LAD / LCX from left candidates by Y ───────────
-        left_sorted_y = sorted(left_candidates, key=lambda c: c["centroid"][1])
-        lad_comp = left_sorted_y[0]   # smallest Y = anterior = LAD
-        lcx_comp = left_sorted_y[-1]  # largest  Y = posterior = LCX
-        vessel_masks["RCA"] = _get_mask(rca_comp)
-        vessel_masks["LAD"] = _get_mask(lad_comp)
-        vessel_masks["LCX"] = _get_mask(lcx_comp)
+        for vessel, comp in assigned.items():
+            vessel_masks[vessel] = _get_mask(comp)
     print(f"[auto_seeds] Vessel assignment: {list(vessel_masks.keys())}")
     for vn, vm in vessel_masks.items():
         pts = np.argwhere(vm)
@@ -584,28 +620,53 @@ def _skeleton_to_ordered_path(
 def _estimate_aorta_center(
     mask_zyx: np.ndarray,
     meta: Dict[str, Any],
+    aorta_mask_zyx: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
-    Estimate where the aorta is in voxel space.
+    Estimate where the aorta root is in voxel space (near the coronary ostia).
 
-    We look for the centroid of the coronary mask in the most-superior
-    (highest Z) quartile of the mask, which is roughly where the coronary
-    ostia exit the aorta.
+    If an aorta segmentation mask is available, uses the inferior portion of
+    the ascending aorta (10th-30th percentile Z), which is where the coronary
+    ostia exit. Otherwise, falls back to the 90th-percentile-Z heuristic on
+    the coronary mask.
 
     Returns [z, y, x] float.
     """
+    # ── Primary: use actual aorta mask ────────────────────────────────────
+    if aorta_mask_zyx is not None and aorta_mask_zyx.any():
+        aorta_pts = np.argwhere(aorta_mask_zyx)
+        z_vals = aorta_pts[:, 0]
+        # Coronary ostia are at the inferior end of ascending aorta
+        # Use 10th-30th percentile Z of aorta (inferior region)
+        z_lo = np.percentile(z_vals, 10)
+        z_hi = np.percentile(z_vals, 30)
+        inferior_pts = aorta_pts[(z_vals >= z_lo) & (z_vals <= z_hi)]
+        if len(inferior_pts) > 0:
+            center = inferior_pts.mean(axis=0)
+            print(
+                f"[auto_seeds] Aorta center (from aorta mask, inferior region): "
+                f"ZYX=({center[0]:.0f},{center[1]:.0f},{center[2]:.0f})"
+            )
+            return center
+
+    # ── Fallback: improved heuristic on coronary mask ─────────────────────
     pts = np.argwhere(mask_zyx)
     if len(pts) == 0:
         Z, Y, X = mask_zyx.shape
         return np.array([Z // 2, Y // 2, X // 2], dtype=float)
 
     z_vals = pts[:, 0]
-    z_thresh = np.percentile(z_vals, 75)  # upper quartile in Z
+    z_thresh = np.percentile(z_vals, 90)  # tighter than old 75th percentile
     superior_pts = pts[z_vals >= z_thresh]
     if len(superior_pts) == 0:
         superior_pts = pts
 
-    return superior_pts.mean(axis=0)  # [z_mean, y_mean, x_mean]
+    center = superior_pts.mean(axis=0)
+    print(
+        f"[auto_seeds] Aorta center (heuristic fallback): "
+        f"ZYX=({center[0]:.0f},{center[1]:.0f},{center[2]:.0f})"
+    )
+    return center  # [z_mean, y_mean, x_mean]
 
 
 def extract_seeds_from_mask(
@@ -615,6 +676,8 @@ def extract_seeds_from_mask(
     vessel_name: str,
     n_waypoints: int = N_WAYPOINTS,
     proximal_mm: float = 45.0,
+    aorta_mask_zyx: Optional[np.ndarray] = None,
+    aorta_center_zyx: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """
     Skeletonize a binary vessel mask and extract:
@@ -629,6 +692,8 @@ def extract_seeds_from_mask(
     vessel_name     : "LAD" | "LCX" | "RCA"
     n_waypoints     : number of waypoints to extract
     proximal_mm     : only use this many mm from the ostium for waypoint selection
+    aorta_mask_zyx  : optional aorta segmentation mask for better ostium placement
+    aorta_center_zyx: optional pre-computed aorta center [z, y, x]
 
     Returns
     -------
@@ -653,8 +718,68 @@ def extract_seeds_from_mask(
             **VESSEL_CONFIGS[vessel_name],
         }
 
-    aorta_center = _estimate_aorta_center(vessel_mask_zyx, meta)
-    ordered = _skeleton_to_ordered_path(skel, aorta_center)
+    # Use provided aorta center, or estimate from coronary mask
+    if aorta_center_zyx is None:
+        aorta_center = _estimate_aorta_center(vessel_mask_zyx, meta, aorta_mask_zyx)
+    else:
+        aorta_center = aorta_center_zyx
+
+    # ── Ostium placement: prefer aorta SURFACE distance over centroid ─────
+    if aorta_mask_zyx is not None and aorta_mask_zyx.any():
+        # Use distance transform of aorta mask: find skeleton point closest
+        # to the aorta surface (smallest distance to aorta boundary)
+        from scipy.ndimage import distance_transform_edt
+        # Distance from each voxel to the nearest aorta voxel
+        # Invert: distance_transform_edt computes distance to background (False)
+        aorta_dist = distance_transform_edt(~aorta_mask_zyx)
+        skel_aorta_dists = aorta_dist[skel_pts[:, 0], skel_pts[:, 1], skel_pts[:, 2]]
+        ostium_idx = int(np.argmin(skel_aorta_dists))
+        ostium_pt = skel_pts[ostium_idx]
+        print(
+            f"[auto_seeds] {vessel_name}: ostium placed by aorta surface distance "
+            f"({skel_aorta_dists[ostium_idx]:.1f} vox from aorta)"
+        )
+
+        # Verify ostium is near a skeleton endpoint (degree <= 2).
+        # If not, walk backward along the skeleton toward the aorta.
+        coord_set = set(map(tuple, skel_pts.tolist()))
+
+        def _skeleton_degree(pt: np.ndarray) -> int:
+            """Count 26-connected skeleton neighbours of a point."""
+            count = 0
+            pz, py, px = int(pt[0]), int(pt[1]), int(pt[2])
+            for dz in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dz == 0 and dy == 0 and dx == 0:
+                            continue
+                        if (pz + dz, py + dy, px + dx) in coord_set:
+                            count += 1
+            return count
+
+        # If degree > 2, try to find a nearby endpoint by walking toward aorta
+        if _skeleton_degree(ostium_pt) > 2:
+            # Among skeleton points within 10 voxels of the ostium,
+            # find endpoints (degree <= 1) closest to aorta
+            ostium_dists = np.linalg.norm(skel_pts.astype(float) - ostium_pt.astype(float), axis=1)
+            nearby_mask = ostium_dists <= 10
+            nearby_indices = np.where(nearby_mask)[0]
+            endpoint_candidates = []
+            for ni in nearby_indices:
+                if _skeleton_degree(skel_pts[ni]) <= 1:
+                    endpoint_candidates.append(ni)
+            if endpoint_candidates:
+                # Pick the endpoint closest to aorta surface
+                best_ep = min(endpoint_candidates, key=lambda i: skel_aorta_dists[i])
+                ostium_pt = skel_pts[best_ep]
+                print(
+                    f"[auto_seeds] {vessel_name}: refined ostium to skeleton endpoint "
+                    f"({skel_aorta_dists[best_ep]:.1f} vox from aorta)"
+                )
+
+        ordered = _skeleton_to_ordered_path(skel, ostium_pt.astype(float))
+    else:
+        ordered = _skeleton_to_ordered_path(skel, aorta_center)
 
     # Compute cumulative arc-length along ordered skeleton
     sp = np.array(spacing_mm)  # [sz, sy, sx]
@@ -771,7 +896,7 @@ def generate_seeds(
         spacing_mm = meta["spacing_mm"]
 
         # ── 2. TotalSegmentator ───────────────────────────────────────────
-        mask_nifti = run_totalsegmentator(
+        mask_nifti, aorta_nifti = run_totalsegmentator(
             nifti_path,
             ts_output_dir,
             device=device,
@@ -783,6 +908,19 @@ def generate_seeds(
         n_mask_vox = int(mask_zyx.sum())
         print(f"[auto_seeds] Combined coronary mask: {n_mask_vox} voxels")
 
+        # Load aorta mask if available
+        aorta_mask_zyx: Optional[np.ndarray] = None
+        if aorta_nifti is not None:
+            try:
+                aorta_mask_zyx = load_mask_as_zyx(aorta_nifti, meta)
+                n_aorta_vox = int(aorta_mask_zyx.sum())
+                print(f"[auto_seeds] Aorta mask: {n_aorta_vox} voxels")
+                if n_aorta_vox == 0:
+                    aorta_mask_zyx = None
+            except Exception as e:
+                print(f"[auto_seeds] Failed to load aorta mask: {e}")
+                aorta_mask_zyx = None
+
         if n_mask_vox == 0:
             raise ValueError(
                 "TotalSegmentator produced an empty coronary mask. "
@@ -793,8 +931,11 @@ def generate_seeds(
                 "  3. Low contrast CT (non-contrast scans may not work well)"
             )
 
+        # ── 3b. Compute aorta center once for the whole pipeline ─────────
+        aorta_center = _estimate_aorta_center(mask_zyx, meta, aorta_mask_zyx)
+
         # ── 4. Separate LAD / LCX / RCA ──────────────────────────────────
-        vessel_masks = separate_vessels(mask_zyx, meta)
+        vessel_masks = separate_vessels(mask_zyx, meta, aorta_center_zyx=aorta_center)
 
         # ── 5 & 6. Skeletonize each vessel → seeds ─────────────────────────
         seeds: Dict[str, Any] = {}
@@ -819,6 +960,8 @@ def generate_seeds(
                 spacing_mm,
                 vessel_name,
                 n_waypoints=n_waypoints,
+                aorta_mask_zyx=aorta_mask_zyx,
+                aorta_center_zyx=aorta_center,
             )
 
         # ── 7. Save JSON ──────────────────────────────────────────────────
