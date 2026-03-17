@@ -21,6 +21,8 @@ from pcat_workstation.workers.pipeline_worker import PipelineWorker
 from pcat_workstation.workers.dicom_loader_worker import DicomLoaderWorker
 from pcat_workstation.models.patient_session import PatientSession
 from pcat_workstation.models.dicom_index import DicomIndex
+from pcat_workstation.models.seed_edit_state import SeedEditState
+from pcat_workstation.controllers.seed_edit_controller import SeedEditController
 from pcat_workstation.app.config import DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_LEVEL
 
 
@@ -39,6 +41,8 @@ class MainWindow(QMainWindow):
         self._current_vessel: str = "LAD"
         self._pipeline_worker: Optional[PipelineWorker] = None
         self._loader_worker: Optional[DicomLoaderWorker] = None
+        self._edit_state: Optional[SeedEditState] = None
+        self._edit_controller: Optional[SeedEditController] = None
 
         # Build UI
         self._setup_central_widget()
@@ -157,6 +161,9 @@ class MainWindow(QMainWindow):
         self._toolbar.run_clicked.connect(self._on_run_pipeline)
         self._toolbar.vessel_changed.connect(self._on_vessel_changed)
         self._toolbar.wl_preset_changed.connect(self._on_wl_changed)
+
+        # Toolbar — View/Edit mode toggle
+        self._toolbar.mode_changed.connect(self._on_mode_changed)
 
         # MPR panel
         self._mpr_panel.window_level_changed.connect(self._on_viewer_wl_changed)
@@ -611,6 +618,90 @@ class MainWindow(QMainWindow):
             "Pericoronary Adipose Tissue Analysis\n"
             "Molloi Lab \u2014 UC Irvine",
         )
+
+    @Slot(str)
+    def _on_mode_changed(self, mode: str) -> None:
+        """Handle View/Edit mode toggle from toolbar."""
+        if mode == "edit":
+            # Create SeedEditState from current pipeline seeds
+            meta = self._session.get_meta() if self._session else None
+            if meta is None:
+                self.statusBar().showMessage("Load a patient first")
+                self._toolbar.set_mode("view")
+                return
+
+            spacing = meta.get("spacing_mm", [1.0, 1.0, 1.0])
+            volume = self._session.get_volume() if self._session else None
+            if volume is None:
+                self.statusBar().showMessage("No volume loaded")
+                self._toolbar.set_mode("view")
+                return
+
+            # Get existing seeds from overlays
+            seeds_dict = {}
+            overlay_path = self._session.session_dir / "overlays.npz"
+            if overlay_path.exists():
+                try:
+                    data = np.load(str(overlay_path), allow_pickle=True)
+                    if "seeds" in data:
+                        seeds_dict = data["seeds"].item()
+                except Exception:
+                    pass
+
+            if not seeds_dict:
+                self.statusBar().showMessage("Run pipeline seeds stage first")
+                self._toolbar.set_mode("view")
+                return
+
+            self._edit_state = SeedEditState(
+                seeds_dict, spacing, volume.shape
+            )
+
+            viewers = self._mpr_panel.get_viewers()
+            self._edit_controller = SeedEditController(
+                state=self._edit_state,
+                views=list(viewers.values()),
+                spacing=spacing,
+            )
+
+            # Connect pipeline rerun request
+            self._edit_controller.request_pipeline_rerun.connect(self._on_edit_rerun)
+
+            self._mpr_panel.set_edit_controller(self._edit_controller)
+            self._mpr_panel.set_edit_mode(True)
+            self._mpr_panel.refresh_seed_overlay(self._edit_state)
+
+            self._central_stack.setCurrentIndex(0)  # Show viewer
+            self.statusBar().showMessage("Edit mode — click seeds to select, drag to move")
+
+        else:  # "view"
+            if self._edit_state is not None:
+                # Save seeds to session
+                self._edit_state.save_to_session(self._session)
+
+            self._mpr_panel.set_edit_mode(False)
+            self._edit_state = None
+            self._edit_controller = None
+            self.statusBar().showMessage("View mode")
+
+    @Slot()
+    def _on_edit_rerun(self) -> None:
+        """Re-run pipeline with updated seeds from edit mode."""
+        if self._edit_state is None or self._session is None:
+            return
+
+        # Save edited seeds
+        self._edit_state.save_to_session(self._session)
+
+        # Reset pipeline stages from centerlines onward
+        for stage in ["centerlines", "contours", "pcat_voi", "statistics"]:
+            self._session.set_stage_status(stage, "pending")
+
+        # Switch back to view mode
+        self._toolbar.set_mode("view")
+
+        # Re-run pipeline
+        self._on_run_pipeline()
 
     # ------------------------------------------------------------------ #
     #  Events

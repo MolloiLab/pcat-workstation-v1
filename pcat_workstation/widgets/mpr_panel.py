@@ -203,6 +203,22 @@ class MPRPanel(QWidget):
         """Switch which vessel's CPR is displayed."""
         self._cpr_view.set_vessel(vessel)
 
+    def set_edit_mode(self, enabled: bool) -> None:
+        """Toggle edit mode on all VTK slice views."""
+        for viewer in (self._axial, self._coronal, self._sagittal):
+            viewer.set_edit_mode(enabled)
+
+    def set_edit_controller(self, controller) -> None:
+        """Set the edit controller on all VTK slice views."""
+        for viewer in (self._axial, self._coronal, self._sagittal):
+            viewer.set_edit_controller(controller)
+
+    def refresh_seed_overlay(self, state) -> None:
+        """Rebuild seed overlays from SeedEditState."""
+        if self._spacing is not None:
+            for viewer in (self._axial, self._coronal, self._sagittal):
+                viewer.set_seed_overlay_extended(state, self._spacing)
+
     def clear_cpr(self) -> None:
         """Clear CPR data."""
         self._contour_results.clear()

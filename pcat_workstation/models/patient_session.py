@@ -51,6 +51,7 @@ class PatientSession(QObject):
         self._volume: Optional[np.ndarray] = None
         self._meta: Optional[Dict] = None
         self._prefix: str = "pcat"
+        self.seeds_data: Optional[Dict] = None  # Extended seeds for edit mode
 
     # ------------------------------------------------------------------
     # DICOM loading
@@ -163,6 +164,7 @@ class PatientSession(QObject):
             "modified_at": self.modified_at.isoformat(),
             "stage_status": dict(self.stage_status),
             "vessel_stats": dict(self.vessel_stats),
+            "seeds_data": self.seeds_data,
         }
 
     # ------------------------------------------------------------------
@@ -209,5 +211,6 @@ class PatientSession(QObject):
         # Backward compat: drop vesselness from old session.json files
         session.stage_status.pop("vesselness", None)
         session.vessel_stats = data.get("vessel_stats", {})
+        session.seeds_data = data.get("seeds_data")
 
         return session
