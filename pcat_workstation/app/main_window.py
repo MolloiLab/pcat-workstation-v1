@@ -170,6 +170,9 @@ class MainWindow(QMainWindow):
         self._toolbar.vessel_changed.connect(self._on_vessel_changed)
         self._toolbar.wl_preset_changed.connect(self._on_wl_changed)
 
+        # Toolbar — Sync zoom
+        self._toolbar.sync_zoom_changed.connect(self._mpr_panel.set_sync_zoom)
+
         # Toolbar — Export PDF report
         self._toolbar.export_clicked.connect(self._on_export)
 

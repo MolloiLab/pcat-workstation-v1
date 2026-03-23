@@ -59,6 +59,7 @@ class _SafeVTKWidget(QVTKRenderWindowInteractor):
     left_drag_event = Signal(int, int)      # (x_pixel, y_pixel) - emitted after 3px deadzone
     left_release_event = Signal(int, int)   # (x_pixel, y_pixel)
     key_press_event = Signal(int, int)      # (key_code, modifiers)
+    double_click_event = Signal()
 
     def __init__(self, parent=None, **kw):
         super().__init__(parent, **kw)
@@ -180,6 +181,12 @@ class _SafeVTKWidget(QVTKRenderWindowInteractor):
         self.key_press_event.emit(ev.key(), int(ev.modifiers()))
         ev.accept()
 
+    def mouseDoubleClickEvent(self, ev):
+        from PySide6.QtCore import Qt as _Qt
+        if ev.button() == _Qt.LeftButton:
+            self.double_click_event.emit()
+        ev.accept()
+
 
 class VTKSliceView(QWidget):
     """A 2D medical image slice viewer using VTK.
@@ -191,6 +198,8 @@ class VTKSliceView(QWidget):
     slice_changed = Signal(int)
     crosshair_moved = Signal(float, float, float)
     window_level_changed = Signal(float, float)
+    fullscreen_requested = Signal(object)  # emits self
+    zoom_changed = Signal(float)
 
     _ORIENTATION_LABELS = {"axial": "Axial", "coronal": "Coronal", "sagittal": "Sagittal"}
 
@@ -279,6 +288,7 @@ class VTKSliceView(QWidget):
         self._vtk_widget.right_press_event.connect(self._on_right_press)
         self._vtk_widget.right_drag_event.connect(self._on_right_drag)
         self._vtk_widget.left_click_event.connect(self._emit_crosshair_at_cursor)
+        self._vtk_widget.double_click_event.connect(lambda: self.fullscreen_requested.emit(self))
 
     def start_interactor(self) -> None:
         """No-op — events are handled via Qt signals, not VTK interactor."""
@@ -287,6 +297,13 @@ class VTKSliceView(QWidget):
     def _on_ctrl_scroll(self, direction: int) -> None:
         factor = 1.1 if direction > 0 else 0.9
         self._vtk_renderer.GetActiveCamera().Zoom(factor)
+        self._render()
+        scale = self._vtk_renderer.GetActiveCamera().GetParallelScale()
+        self.zoom_changed.emit(scale)
+
+    def set_parallel_scale(self, scale: float) -> None:
+        """Set camera parallel scale without emitting zoom_changed signal."""
+        self._vtk_renderer.GetActiveCamera().SetParallelScale(scale)
         self._render()
 
     def _on_right_press(self) -> None:

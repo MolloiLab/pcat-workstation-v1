@@ -22,6 +22,7 @@ class MPRPanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._linking = False
+        self._sync_zoom = True
         self._volume = None
         self._spacing = None
         self._contour_results: dict = {}  # vessel -> ContourResult
@@ -57,6 +58,7 @@ class MPRPanel(QWidget):
             viewer.crosshair_moved.connect(self._on_crosshair_moved)
             viewer.window_level_changed.connect(self._on_window_level_changed)
             viewer.slice_changed.connect(self._on_slice_changed)
+            viewer.zoom_changed.connect(self._on_zoom_changed)
 
         # CPR → MPR sync: when needle moves, jump MPR viewers to that 3D location
         self._cpr_view.needle_moved.connect(self._on_cpr_needle_moved)
@@ -107,6 +109,18 @@ class MPRPanel(QWidget):
         finally:
             self._linking = False
 
+    def _on_zoom_changed(self, scale: float) -> None:
+        if self._linking or not self._sync_zoom:
+            return
+        self._linking = True
+        try:
+            sender = self.sender()
+            for viewer in (self._axial, self._coronal, self._sagittal):
+                if viewer is not sender:
+                    viewer.set_parallel_scale(scale)
+        finally:
+            self._linking = False
+
     def _on_window_level_changed(self, window: float, level: float) -> None:
         if self._linking:
             return
@@ -123,6 +137,10 @@ class MPRPanel(QWidget):
             self._linking = False
 
     # ── Public API ───────────────────────────────────────────────────
+
+    def set_sync_zoom(self, enabled: bool) -> None:
+        """Enable or disable synchronized zoom across MPR views."""
+        self._sync_zoom = enabled
 
     def set_volume(self, volume: np.ndarray, spacing: list) -> None:
         """Pass volume and spacing to all three VTK viewers and CPR view."""

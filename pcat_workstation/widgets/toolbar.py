@@ -24,6 +24,7 @@ class MainToolBar(QToolBar):
 
     vessel_changed = Signal(str)       # "LAD", "LCx", "RCA"
     wl_preset_changed = Signal(float, float)  # (window, level)
+    sync_zoom_changed = Signal(bool)
     run_clicked = Signal()
     export_clicked = Signal()
 
@@ -76,6 +77,35 @@ class MainToolBar(QToolBar):
             "color: #636366; font-size: 10pt; padding: 0 8px; background: transparent;"
         )
         self.addWidget(self._hint_label)
+
+        # --- Sync Zoom toggle ---
+        self._sync_zoom_btn = QToolButton()
+        self._sync_zoom_btn.setText("Sync Zoom")
+        self._sync_zoom_btn.setCheckable(True)
+        self._sync_zoom_btn.setChecked(True)
+        self._sync_zoom_btn.setToolTip("Synchronize zoom level across all MPR views")
+        self._sync_zoom_btn.setMinimumHeight(32)
+        self._sync_zoom_btn.setStyleSheet(
+            """
+            QToolButton {
+                background-color: transparent;
+                color: #e5e5e7;
+                border: 1px solid #38383a;
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-size: 13pt;
+            }
+            QToolButton:checked {
+                background-color: #0a84ff;
+                color: #ffffff;
+                border: 1px solid #0a84ff;
+            }
+            QToolButton:hover { background-color: #3a3a3c; }
+            QToolButton:checked:hover { background-color: #0a6edb; }
+            """
+        )
+        self._sync_zoom_btn.toggled.connect(self.sync_zoom_changed)
+        self.addWidget(self._sync_zoom_btn)
 
         self.addSeparator()
 
