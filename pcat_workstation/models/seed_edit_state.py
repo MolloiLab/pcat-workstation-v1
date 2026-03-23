@@ -341,6 +341,32 @@ class SeedEditState(QObject):
             out[vessel] = list(entry["ostium"]) if entry["ostium"] is not None else None
         return out
 
+    def export_path(self, filepath) -> None:
+        """Export seeds and centerlines to a JSON file."""
+        import json
+        from pathlib import Path as _Path
+
+        data = {
+            "seeds": copy.deepcopy(self.seeds),
+            "centerlines": {
+                v: cl.tolist() if cl is not None else None
+                for v, cl in self.centerlines.items()
+            },
+            "current_vessel": self.current_vessel,
+        }
+        _Path(filepath).write_text(json.dumps(data, indent=2))
+
+    @classmethod
+    def import_path(cls, filepath, spacing_mm, volume_shape):
+        """Load seeds and centerlines from a JSON file."""
+        import json
+        from pathlib import Path as _Path
+
+        data = json.loads(_Path(filepath).read_text())
+        state = cls(data["seeds"], spacing_mm, volume_shape)
+        state.current_vessel = data.get("current_vessel", "")
+        return state
+
     def save_to_session(self, session) -> None:
         """Persist extended seeds into a :class:`PatientSession`.
 

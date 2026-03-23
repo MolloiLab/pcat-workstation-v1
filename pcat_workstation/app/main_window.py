@@ -121,6 +121,18 @@ class MainWindow(QMainWindow):
         export_action.triggered.connect(self._toolbar.export_clicked)
         file_menu.addAction(export_action)
 
+        file_menu.addSeparator()
+
+        save_path_action = QAction("Save Path...", self)
+        save_path_action.triggered.connect(self._on_save_path)
+        file_menu.addAction(save_path_action)
+
+        load_path_action = QAction("Load Path...", self)
+        load_path_action.triggered.connect(self._on_load_path)
+        file_menu.addAction(load_path_action)
+
+        file_menu.addSeparator()
+
         settings_action = QAction("Settings...", self)
         settings_action.triggered.connect(self._on_settings)
         file_menu.addAction(settings_action)
@@ -710,6 +722,35 @@ class MainWindow(QMainWindow):
             cpr_images=cpr_images,
         )
         self.statusBar().showMessage(f"Report exported: {path}")
+
+    @Slot()
+    def _on_save_path(self) -> None:
+        """Save current seeds/centerlines to a JSON file."""
+        if self._edit_state is None:
+            self.statusBar().showMessage("No seeds to save")
+            return
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Save Path", "", "JSON (*.json)")
+        if path:
+            self._edit_state.export_path(path)
+            self.statusBar().showMessage(f"Path saved: {path}")
+
+    @Slot()
+    def _on_load_path(self) -> None:
+        """Load seeds/centerlines from a JSON file."""
+        if self._session is None:
+            return
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Load Path", "", "JSON (*.json)")
+        if not path:
+            return
+        meta = self._session.get_meta()
+        volume = self._session.get_volume()
+        if meta and volume is not None:
+            from pcat_workstation.models.seed_edit_state import SeedEditState
+            state = SeedEditState.import_path(path, meta["spacing_mm"], volume.shape)
+            self._enable_seed_editing(state.seeds, meta["spacing_mm"], volume.shape)
+            self.statusBar().showMessage(f"Path loaded: {path}")
 
     @Slot()
     def _on_settings(self) -> None:

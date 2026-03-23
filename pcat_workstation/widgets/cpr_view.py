@@ -23,7 +23,7 @@ from PySide6.QtGui import (
     QWheelEvent,
     QKeyEvent,
 )
-from PySide6.QtWidgets import QHBoxLayout, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QSplitter, QVBoxLayout, QWidget
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +105,8 @@ class _VesselData:
         "cpr_B_frame",
         "cpr_positions_mm",
         "cpr_arclengths",
+        "_cpr_N_frame_orig",
+        "_cpr_B_frame_orig",
     )
 
     def __init__(self) -> None:
@@ -117,6 +119,8 @@ class _VesselData:
         self.cpr_B_frame: Optional[np.ndarray] = None
         self.cpr_positions_mm: Optional[np.ndarray] = None
         self.cpr_arclengths: Optional[np.ndarray] = None
+        self._cpr_N_frame_orig: Optional[np.ndarray] = None
+        self._cpr_B_frame_orig: Optional[np.ndarray] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -355,6 +359,13 @@ class _CPRPanel(QWidget):
         super().mouseReleaseEvent(ev)
 
     def wheelEvent(self, ev: QWheelEvent) -> None:
+        if ev.modifiers() & Qt.ShiftModifier:
+            # Shift+scroll: rotate the CPR cutting plane
+            current = self._root._rotation_slider.value()
+            delta = 5 if ev.angleDelta().y() > 0 else -5
+            self._root._rotation_slider.setValue((current + delta) % 361)
+            ev.accept()
+            return
         if self._n_positions > 0:
             delta = -1 if ev.angleDelta().y() > 0 else 1
             new_idx = max(0, min(self._needle_idx + delta, self._n_positions - 1))
@@ -374,6 +385,11 @@ class _CPRPanel(QWidget):
                 ev.accept()
                 return
         super().keyPressEvent(ev)
+
+    def mouseDoubleClickEvent(self, ev: QMouseEvent) -> None:
+        if ev.button() == Qt.LeftButton:
+            self._root.fullscreen_requested.emit(self._root)
+        ev.accept()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -545,6 +561,7 @@ class CPRView(QWidget):
     needle_moved = Signal(float, float, float)  # x_mm, y_mm, z_mm
     vessel_changed = Signal(str)
     window_level_changed = Signal(float, float)
+    fullscreen_requested = Signal(object)  # emits self
 
     # Cross-section parameters
     _CS_WIDTH_MM: float = 15.0
@@ -573,6 +590,32 @@ class CPRView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        # Rotation angle toolbar
+        self._cpr_toolbar = QWidget()
+        self._cpr_toolbar.setStyleSheet("background-color: #1a1a1a;")
+        toolbar_layout = QHBoxLayout(self._cpr_toolbar)
+        toolbar_layout.setContentsMargins(4, 2, 4, 2)
+        toolbar_layout.setSpacing(8)
+
+        angle_label = QLabel("Angle:")
+        angle_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        toolbar_layout.addWidget(angle_label)
+
+        self._rotation_slider = QSlider(Qt.Horizontal)
+        self._rotation_slider.setRange(0, 360)
+        self._rotation_slider.setValue(0)
+        self._rotation_slider.setTickInterval(45)
+        self._rotation_slider.setTickPosition(QSlider.TicksBelow)
+        self._rotation_slider.valueChanged.connect(self._on_rotation_changed)
+        toolbar_layout.addWidget(self._rotation_slider)
+
+        self._rotation_label = QLabel("0\u00b0")
+        self._rotation_label.setFixedWidth(35)
+        self._rotation_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        toolbar_layout.addWidget(self._rotation_label)
+
+        layout.addWidget(self._cpr_toolbar)
 
         self._splitter = QSplitter(Qt.Horizontal)
         self._splitter.setStyleSheet(
@@ -630,6 +673,9 @@ class CPRView(QWidget):
         vd.cpr_B_frame = frame_data["B_frame"]
         vd.cpr_positions_mm = frame_data["positions_mm"]
         vd.cpr_arclengths = frame_data["arclengths"]
+        # Store the original (unrotated) Bishop frame for interactive rotation
+        vd._cpr_N_frame_orig = frame_data["N_frame"].copy()
+        vd._cpr_B_frame_orig = frame_data["B_frame"].copy()
         # Invalidate cross-section cache for this vessel
         self._cs_cache = {k: v for k, v in self._cs_cache.items() if k[0] != vessel}
 
@@ -639,6 +685,11 @@ class CPRView(QWidget):
             return
         self._current_vessel = vessel
         self._needle_idx = 0
+        # Reset rotation slider when switching vessels
+        self._rotation_slider.blockSignals(True)
+        self._rotation_slider.setValue(0)
+        self._rotation_label.setText("0\u00b0")
+        self._rotation_slider.blockSignals(False)
         self._refresh_cpr()
         self._refresh_cs()
         self.vessel_changed.emit(vessel)
@@ -655,6 +706,10 @@ class CPRView(QWidget):
         self._vessels.clear()
         self._cs_cache.clear()
         self._needle_idx = 0
+        self._rotation_slider.blockSignals(True)
+        self._rotation_slider.setValue(0)
+        self._rotation_label.setText("0\u00b0")
+        self._rotation_slider.blockSignals(False)
         self._cpr_panel.set_pixmap(None, 0)
         self._cs_panel.clear()
 
@@ -752,6 +807,49 @@ class CPRView(QWidget):
         self._refresh_cpr()
         self._refresh_cs()
         self.window_level_changed.emit(self._window, self._level)
+
+    # ── Rotation ─────────────────────────────────────────────────────
+
+    def _on_rotation_changed(self, angle: int) -> None:
+        """Regenerate CPR image at the new rotation angle using fast trilinear."""
+        self._rotation_label.setText(f"{angle}\u00b0")
+        vd = self._current_vdata()
+        if vd is None or vd.volume is None or vd.spacing is None:
+            return
+        if vd.cpr_positions_mm is None or vd._cpr_N_frame_orig is None:
+            return
+        if vd.cpr_image is None:
+            return
+
+        # Rotate the ORIGINAL (unrotated) Bishop frame by the new angle
+        theta = np.deg2rad(float(angle))
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        N_orig = vd._cpr_N_frame_orig
+        B_orig = vd._cpr_B_frame_orig
+        N_rot = cos_t * N_orig + sin_t * B_orig
+        B_rot = -sin_t * N_orig + cos_t * B_orig
+
+        # Rebuild CPR image using fast trilinear method
+        from pipeline.visualize import _build_cpr_image_fast
+
+        n_lateral = vd.cpr_image.shape[1]  # lateral pixel count
+        cpr_img_raw = _build_cpr_image_fast(
+            vd.volume, vd.spacing,
+            vd.cpr_positions_mm, N_rot, B_rot,
+            n_rows=n_lateral,
+            row_extent_mm=vd.row_extent_mm or 25.0,
+            slab_mm=0.0,  # thin slab for interactive speed
+        )
+        # _build_cpr_image_fast returns (n_lateral, n_arc); transpose to (n_arc, n_lateral)
+        cpr_img = cpr_img_raw.T
+
+        # Update stored data
+        vd.cpr_image = cpr_img
+        vd.cpr_N_frame = N_rot
+        vd.cpr_B_frame = B_rot
+        self._cs_cache.clear()
+        self._refresh_cpr()
+        self._refresh_cs()
 
     # ── Refresh rendering ────────────────────────────────────────────
 
