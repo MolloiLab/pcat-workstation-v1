@@ -170,6 +170,12 @@ class _CPRPanel(QWidget):
         self._wl_dragging = False
         self._last_wl_pos: Optional[QPointF] = None
 
+        # Measurement state
+        self._measuring = False
+        self._measure_start: Optional[QPointF] = None
+        self._measure_end: Optional[QPointF] = None
+        self._measurements: list = []  # list of (start_pt, end_pt, distance_mm) tuples
+
         self.setMinimumWidth(80)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
@@ -311,6 +317,23 @@ class _CPRPanel(QWidget):
                 p.setFont(QFont("Helvetica", 9, QFont.Weight.Bold))
                 p.drawText(QPointF(rect.right() - 14, ny - 3), label)
 
+        # ── Measurements overlay ─────────────────────────────────────
+        pen_measure = QPen(QColor("#ff9f0a"), 2.0)
+        p.setPen(pen_measure)
+        p.setFont(QFont("Helvetica", 9, QFont.Bold))
+        for start, end, dist_mm in self._measurements:
+            p.setPen(QPen(QColor("#ff9f0a"), 2.0))
+            p.drawLine(start, end)
+            p.drawEllipse(start, 3, 3)
+            p.drawEllipse(end, 3, 3)
+            mid = (start + end) / 2.0
+            p.drawText(mid + QPointF(5, -5), f"{dist_mm:.1f} mm")
+
+        # Current measurement in progress
+        if self._measuring and self._measure_start and self._measure_end:
+            p.setPen(QPen(QColor("#ff9f0a"), 2.0, Qt.DashLine))
+            p.drawLine(self._measure_start, self._measure_end)
+
         p.end()
 
     def _draw_arc_ticks(self, p: QPainter, rect: QRectF) -> None:
@@ -441,6 +464,10 @@ class _CPRPanel(QWidget):
             elif tool == "Zoom":
                 self._zoom_start = ev.position()
                 self._zoom_dragging = True
+            elif tool == "Measure":
+                self._measure_start = ev.position()
+                self._measure_end = ev.position()
+                self._measuring = True
         elif ev.button() == Qt.RightButton:
             # Right-click always = W/L (unchanged)
             self._right_dragging = True
@@ -486,10 +513,29 @@ class _CPRPanel(QWidget):
             self._zoom_factor = max(0.2, min(5.0, self._zoom_factor * (1.0 + dy * 0.005)))
             self._zoom_start = ev.position()
             self.update()
+        elif tool == "Measure" and self._measuring:
+            self._measure_end = ev.position()
+            self.update()
         super().mouseMoveEvent(ev)
 
     def mouseReleaseEvent(self, ev: QMouseEvent) -> None:
+        tool = self._root._current_tool
         if ev.button() == Qt.LeftButton:
+            if tool == "Measure" and self._measuring:
+                self._measuring = False
+                if self._measure_start and self._measure_end:
+                    dist_mm = self._compute_measurement_mm(
+                        self._measure_start, self._measure_end
+                    )
+                    if dist_mm > 0.5:  # ignore tiny accidental clicks
+                        self._measurements.append((
+                            QPointF(self._measure_start),
+                            QPointF(self._measure_end),
+                            dist_mm,
+                        ))
+                self._measure_start = None
+                self._measure_end = None
+                self.update()
             self._dragging_line = None
             self._wl_dragging = False
             self._last_wl_pos = None
@@ -525,6 +571,11 @@ class _CPRPanel(QWidget):
         ev.accept()
 
     def keyPressEvent(self, ev: QKeyEvent) -> None:
+        if ev.key() == Qt.Key_Delete and self._measurements:
+            self._measurements.pop()
+            self.update()
+            ev.accept()
+            return
         if self._n_positions > 0:
             if ev.key() == Qt.Key_Up:
                 new_idx = max(0, self._needle_idx - 1)
@@ -537,6 +588,37 @@ class _CPRPanel(QWidget):
                 ev.accept()
                 return
         super().keyPressEvent(ev)
+
+    def _compute_measurement_mm(self, p1: QPointF, p2: QPointF) -> float:
+        """Convert pixel distance to mm using CPR's physical scale."""
+        rect = self._image_rect()
+        vdata = self._root._current_vdata()
+        if vdata is None or vdata.cpr_image is None:
+            return 0.0
+
+        n_arc, n_lateral = vdata.cpr_image.shape
+        row_extent_mm = vdata.row_extent_mm or 25.0
+
+        # Pixels to image coordinates
+        img_x1 = (p1.x() - rect.left()) / rect.width() * n_lateral
+        img_y1 = (p1.y() - rect.top()) / rect.height() * n_arc
+        img_x2 = (p2.x() - rect.left()) / rect.width() * n_lateral
+        img_y2 = (p2.y() - rect.top()) / rect.height() * n_arc
+
+        # Image coords to mm
+        # Lateral: n_lateral pixels span 2 * row_extent_mm
+        mm_per_pixel_lateral = 2.0 * row_extent_mm / n_lateral
+        # Arc-length: need total arc-length
+        if vdata.cpr_arclengths is not None and len(vdata.cpr_arclengths) > 0:
+            arc_total_mm = float(vdata.cpr_arclengths[-1])
+        else:
+            arc_total_mm = n_arc * 0.1  # fallback estimate
+        mm_per_pixel_arc = arc_total_mm / n_arc
+
+        dx_mm = (img_x2 - img_x1) * mm_per_pixel_lateral
+        dy_mm = (img_y2 - img_y1) * mm_per_pixel_arc
+
+        return float(np.sqrt(dx_mm**2 + dy_mm**2))
 
     def mouseDoubleClickEvent(self, ev: QMouseEvent) -> None:
         if ev.button() == Qt.LeftButton:
@@ -806,7 +888,7 @@ class CPRView(QWidget):
         self._current_tool = "Navigate"
         toolbar_layout.addWidget(QLabel("Tool:"))
         self._tool_combo = QComboBox()
-        self._tool_combo.addItems(["Navigate", "W/L", "Pan", "Zoom"])
+        self._tool_combo.addItems(["Navigate", "W/L", "Pan", "Zoom", "Measure"])
         self._tool_combo.setCurrentIndex(0)
         self._tool_combo.setFixedWidth(100)
         self._tool_combo.setStyleSheet(
@@ -873,6 +955,7 @@ class CPRView(QWidget):
         # Invalidate cross-section cache for this vessel
         self._cs_cache = {k: v for k, v in self._cs_cache.items() if k[0] != vessel}
         if vessel == self._current_vessel:
+            self._cpr_panel._measurements = []
             self._refresh_cpr()
             self._refresh_cs()
 
@@ -1064,6 +1147,7 @@ class CPRView(QWidget):
         vd.cpr_N_frame = N_rot
         vd.cpr_B_frame = B_rot
         self._cs_cache.clear()
+        self._cpr_panel._measurements = []
         self._refresh_cpr()
         self._refresh_cs()
 
