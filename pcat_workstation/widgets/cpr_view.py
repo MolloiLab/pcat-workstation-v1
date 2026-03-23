@@ -25,6 +25,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QRadioButton,
@@ -159,6 +160,16 @@ class _CPRPanel(QWidget):
         self._right_dragging = False
         self._last_drag_pos: Optional[QPointF] = None
 
+        # Pan / Zoom / W-L tool state
+        self._pan_offset = QPointF(0, 0)
+        self._zoom_factor = 1.0
+        self._pan_dragging = False
+        self._pan_start: Optional[QPointF] = None
+        self._zoom_dragging = False
+        self._zoom_start: Optional[QPointF] = None
+        self._wl_dragging = False
+        self._last_wl_pos: Optional[QPointF] = None
+
         self.setMinimumWidth(80)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
@@ -223,8 +234,11 @@ class _CPRPanel(QWidget):
             # Straightened: stretch to fill panel (independent scaling)
             sw, sh = ww, wh
 
-        x0 = (ww - sw) / 2.0
-        y0 = (wh - sh) / 2.0
+        # Apply zoom
+        sw *= self._zoom_factor
+        sh *= self._zoom_factor
+        x0 = (ww - sw) / 2.0 + self._pan_offset.x()
+        y0 = (wh - sh) / 2.0 + self._pan_offset.y()
         return QRectF(x0, y0, sw, sh)
 
     def _y_for_index(self, idx: int) -> float:
@@ -397,32 +411,52 @@ class _CPRPanel(QWidget):
     # ── mouse / keyboard ─────────────────────────────────────────────
 
     def mousePressEvent(self, ev: QMouseEvent) -> None:
-        if ev.button() == Qt.LeftButton and self._n_positions > 0:
-            y = ev.position().y()
-            # Check proximity to each line (within 8 pixels)
-            idx_a = max(0, self._needle_idx - self._needle_interval)
-            idx_b = self._needle_idx
-            idx_c = min(self._n_positions - 1, self._needle_idx + self._needle_interval)
-            lines = {
-                "A": self._y_for_index(idx_a),
-                "B": self._y_for_index(idx_b),
-                "C": self._y_for_index(idx_c),
-            }
-            closest = min(lines.items(), key=lambda kv: abs(kv[1] - y))
-            if abs(closest[1] - y) < 8:
-                self._dragging_line = closest[0]
-            else:
-                # Click not near any line - move B to click position
-                self._dragging_line = None
-                idx = self._index_for_y(y)
-                self.needle_index_changed.emit(idx)
+        tool = self._root._current_tool
+        if ev.button() == Qt.LeftButton:
+            if tool == "Navigate" and self._n_positions > 0:
+                y = ev.position().y()
+                # Check proximity to each line (within 8 pixels)
+                idx_a = max(0, self._needle_idx - self._needle_interval)
+                idx_b = self._needle_idx
+                idx_c = min(self._n_positions - 1, self._needle_idx + self._needle_interval)
+                lines = {
+                    "A": self._y_for_index(idx_a),
+                    "B": self._y_for_index(idx_b),
+                    "C": self._y_for_index(idx_c),
+                }
+                closest = min(lines.items(), key=lambda kv: abs(kv[1] - y))
+                if abs(closest[1] - y) < 8:
+                    self._dragging_line = closest[0]
+                else:
+                    # Click not near any line - move B to click position
+                    self._dragging_line = None
+                    idx = self._index_for_y(y)
+                    self.needle_index_changed.emit(idx)
+            elif tool == "W/L":
+                self._wl_dragging = True
+                self._last_wl_pos = ev.position()
+            elif tool == "Pan":
+                self._pan_start = ev.position()
+                self._pan_dragging = True
+            elif tool == "Zoom":
+                self._zoom_start = ev.position()
+                self._zoom_dragging = True
         elif ev.button() == Qt.RightButton:
+            # Right-click always = W/L (unchanged)
             self._right_dragging = True
             self._last_drag_pos = ev.position()
         super().mousePressEvent(ev)
 
     def mouseMoveEvent(self, ev: QMouseEvent) -> None:
-        if self._dragging_line and ev.buttons() & Qt.LeftButton:
+        tool = self._root._current_tool
+        if self._right_dragging and self._last_drag_pos is not None:
+            # Right-drag W/L (always active regardless of tool)
+            pos = ev.position()
+            dx = pos.x() - self._last_drag_pos.x()
+            dy = pos.y() - self._last_drag_pos.y()
+            self._last_drag_pos = pos
+            self.wl_drag.emit(dx, dy)
+        elif tool == "Navigate" and self._dragging_line and ev.buttons() & Qt.LeftButton:
             idx = self._index_for_y(ev.position().y())
             if self._dragging_line == "B":
                 self.needle_index_changed.emit(idx)
@@ -436,17 +470,33 @@ class _CPRPanel(QWidget):
                 self._needle_interval = new_interval
                 self.update()
                 self._root._refresh_all_cs()
-        elif self._right_dragging and self._last_drag_pos is not None:
+        elif tool == "W/L" and self._wl_dragging and self._last_wl_pos is not None:
             pos = ev.position()
-            dx = pos.x() - self._last_drag_pos.x()
-            dy = pos.y() - self._last_drag_pos.y()
-            self._last_drag_pos = pos
+            dx = pos.x() - self._last_wl_pos.x()
+            dy = pos.y() - self._last_wl_pos.y()
+            self._last_wl_pos = pos
             self.wl_drag.emit(dx, dy)
+        elif tool == "Pan" and self._pan_dragging and self._pan_start is not None:
+            delta = ev.position() - self._pan_start
+            self._pan_offset += delta
+            self._pan_start = ev.position()
+            self.update()
+        elif tool == "Zoom" and self._zoom_dragging and self._zoom_start is not None:
+            dy = ev.position().y() - self._zoom_start.y()
+            self._zoom_factor = max(0.2, min(5.0, self._zoom_factor * (1.0 + dy * 0.005)))
+            self._zoom_start = ev.position()
+            self.update()
         super().mouseMoveEvent(ev)
 
     def mouseReleaseEvent(self, ev: QMouseEvent) -> None:
         if ev.button() == Qt.LeftButton:
             self._dragging_line = None
+            self._wl_dragging = False
+            self._last_wl_pos = None
+            self._pan_dragging = False
+            self._pan_start = None
+            self._zoom_dragging = False
+            self._zoom_start = None
         elif ev.button() == Qt.RightButton:
             self._right_dragging = False
             self._last_drag_pos = None
@@ -751,6 +801,22 @@ class CPRView(QWidget):
         self._cpr_mode_group.idToggled.connect(self._on_cpr_mode_changed)
         toolbar_layout.addWidget(self._straightened_btn)
         toolbar_layout.addWidget(self._stretched_btn)
+
+        # Mouse tool selector
+        self._current_tool = "Navigate"
+        toolbar_layout.addWidget(QLabel("Tool:"))
+        self._tool_combo = QComboBox()
+        self._tool_combo.addItems(["Navigate", "W/L", "Pan", "Zoom"])
+        self._tool_combo.setCurrentIndex(0)
+        self._tool_combo.setFixedWidth(100)
+        self._tool_combo.setStyleSheet(
+            "QComboBox { background: #2c2c2e; color: #e5e5e7; border: 1px solid #38383a; "
+            "border-radius: 3px; padding: 2px 8px; font-size: 10pt; }"
+        )
+        self._tool_combo.currentTextChanged.connect(
+            lambda t: setattr(self, '_current_tool', t)
+        )
+        toolbar_layout.addWidget(self._tool_combo)
 
         layout.addWidget(self._cpr_toolbar)
 
