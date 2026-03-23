@@ -23,7 +23,16 @@ from PySide6.QtGui import (
     QWheelEvent,
     QKeyEvent,
 )
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QHBoxLayout,
+    QLabel,
+    QRadioButton,
+    QSlider,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -166,13 +175,48 @@ class _CPRPanel(QWidget):
     # ── coordinate helpers ───────────────────────────────────────────
 
     def _image_rect(self) -> QRectF:
-        """Rectangle within widget where the image is drawn (aspect-fit)."""
+        """Rectangle within widget where the image is drawn.
+
+        In **straightened** mode the image is stretched to fill the panel
+        (independent X/Y scaling).  In **stretched** mode the physical
+        aspect ratio is preserved so that 1 mm on the arc-length axis
+        equals 1 mm on the lateral axis, enabling accurate distance
+        measurement in any direction.
+        """
         if self._pixmap is None or self._pixmap.isNull():
             return QRectF(0, 0, self.width(), self.height())
         pw, ph = self._pixmap.width(), self._pixmap.height()
         ww, wh = self.width(), self.height()
-        scale = min(ww / pw, wh / ph) if pw > 0 and ph > 0 else 1.0
-        sw, sh = pw * scale, ph * scale
+
+        if self._root._stretched_mode:
+            # Preserve physical aspect ratio (aspect-fit)
+            vdata = self._root._current_vdata()
+            if (
+                vdata is not None
+                and vdata.cpr_arclengths is not None
+                and len(vdata.cpr_arclengths) > 1
+            ):
+                arc_total_mm = float(vdata.cpr_arclengths[-1])
+                lateral_mm = 2.0 * (vdata.row_extent_mm or 25.0)
+                # Physical aspect: height / width in mm
+                physical_aspect = arc_total_mm / lateral_mm
+                # Fit within widget preserving physical aspect
+                if physical_aspect > (wh / ww):
+                    # Height-limited
+                    sh = wh
+                    sw = wh / physical_aspect
+                else:
+                    # Width-limited
+                    sw = ww
+                    sh = ww * physical_aspect
+            else:
+                # Fallback: pixel aspect-fit
+                scale = min(ww / pw, wh / ph) if pw > 0 and ph > 0 else 1.0
+                sw, sh = pw * scale, ph * scale
+        else:
+            # Straightened: stretch to fill panel (independent scaling)
+            sw, sh = ww, wh
+
         x0 = (ww - sw) / 2.0
         y0 = (wh - sh) / 2.0
         return QRectF(x0, y0, sw, sh)
@@ -620,6 +664,20 @@ class CPRView(QWidget):
         self._rotation_label.setStyleSheet("color: #cccccc; font-size: 11px;")
         toolbar_layout.addWidget(self._rotation_label)
 
+        # Straightened / Stretched toggle
+        self._stretched_mode = False
+        self._straightened_btn = QRadioButton("Straightened")
+        self._straightened_btn.setChecked(True)
+        self._straightened_btn.setStyleSheet("color: #e5e5e7; font-size: 10pt;")
+        self._stretched_btn = QRadioButton("Stretched")
+        self._stretched_btn.setStyleSheet("color: #e5e5e7; font-size: 10pt;")
+        self._cpr_mode_group = QButtonGroup(self)
+        self._cpr_mode_group.addButton(self._straightened_btn, 0)
+        self._cpr_mode_group.addButton(self._stretched_btn, 1)
+        self._cpr_mode_group.idToggled.connect(self._on_cpr_mode_changed)
+        toolbar_layout.addWidget(self._straightened_btn)
+        toolbar_layout.addWidget(self._stretched_btn)
+
         layout.addWidget(self._cpr_toolbar)
 
         self._splitter = QSplitter(Qt.Horizontal)
@@ -855,6 +913,14 @@ class CPRView(QWidget):
         self._cs_cache.clear()
         self._refresh_cpr()
         self._refresh_cs()
+
+    # ── CPR mode toggle ────────────────────────────────────────────
+
+    def _on_cpr_mode_changed(self, id: int, checked: bool) -> None:
+        """Switch between Straightened (fill panel) and Stretched (preserve aspect)."""
+        if checked:
+            self._stretched_mode = (id == 1)
+            self._cpr_panel.update()
 
     # ── Refresh rendering ────────────────────────────────────────────
 
