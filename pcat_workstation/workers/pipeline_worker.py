@@ -188,6 +188,8 @@ class PipelineWorker(QThread):
                     vessels_found = list(seed_points.keys())
                     self._emit(f"Seeds found: {', '.join(vessels_found)}")
                     self.seeds_ready.emit(seed_points)
+                else:
+                    self._emit("Warning: no coronary seeds detected — check DICOM is contrast-enhanced CCTA")
             except Exception as exc:
                 self._handle_stage_failure("seeds", exc)
                 self.pipeline_failed.emit(f"Seeds generation failed: {exc}")
@@ -231,13 +233,13 @@ class PipelineWorker(QThread):
                 for vessel in self.vessels:
                     self._emit(f"Processing {vessel} centerline...")
                     if vessel not in seeds_data:
-                        self._debug(f"  {vessel} not in seeds file -- skipping")
+                        self._emit(f"  {vessel}: not detected — skipping")
                         continue
 
                     vsd = seeds_data[vessel]
                     ostium = vsd.get("ostium_ijk")
                     if not ostium or any(v is None for v in ostium):
-                        self._debug(f"  {vessel} has null seeds -- skipping")
+                        self._emit(f"  {vessel}: no valid ostium — skipping")
                         continue
 
                     # Load full centerline from NPZ
@@ -251,9 +253,7 @@ class PipelineWorker(QThread):
                             centerline_full = cl_data[cl_key]
 
                     if centerline_full is None or len(centerline_full) < 3:
-                        self._debug(
-                            f"  {vessel} centerline not found or too short"
-                        )
+                        self._emit(f"  {vessel}: centerline unavailable — skipping")
                         continue
 
                     vcfg = VESSEL_CONFIGS.get(vessel, {})

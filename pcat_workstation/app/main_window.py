@@ -266,8 +266,12 @@ class MainWindow(QMainWindow):
         # Clear stale overlays/state from previous patient
         self._mpr_panel.clear_overlays()
         self._mpr_panel.clear_cpr()
+        self._mpr_panel.set_edit_mode(False)
+        self._edit_state = None
+        self._edit_controller = None
         self._progress_panel.reset_stages()
         self._progress_panel.clear_vessel_summary()
+        self._progress_panel.clear_progress()
 
         # Mark import stage complete (must be on main thread for autosave)
         self._session.set_stage_status("import", "complete")
@@ -529,13 +533,16 @@ class MainWindow(QMainWindow):
                 study_date=self._session.study_date,
                 vessel_stats=display_stats,
             )
-            self._central_stack.setCurrentIndex(1)  # Show results
+            # Don't auto-switch to results — clinician may want to keep
+            # examining images. They can click "View Results" in the summary.
 
         # Update progress panel vessel summary
         if self._session.vessel_stats:
             self._progress_panel.set_vessel_summary(self._session.vessel_stats)
 
-        self.statusBar().showMessage("Pipeline complete")
+        self.statusBar().showMessage(
+            "Pipeline complete \u2014 results available in Vessel Results panel"
+        )
         self._pipeline_worker = None
 
     @Slot(str)
@@ -869,6 +876,8 @@ class MainWindow(QMainWindow):
 
         # Refresh centerlines when seeds are edited
         self._edit_state.centerline_changed.connect(self._on_edit_centerline_changed)
+        # Clear stale CPR when seeds are moved (CPR becomes outdated)
+        self._edit_state.seeds_changed.connect(self._on_seeds_edited)
 
         self.statusBar().showMessage("Seeds loaded \u2014 click to select, drag to move")
 
@@ -901,6 +910,13 @@ class MainWindow(QMainWindow):
                 cl_dict[v] = cl
         if cl_dict:
             self._mpr_panel.set_centerline_overlay(cl_dict, meta["spacing_mm"])
+
+    def _on_seeds_edited(self, vessel: str) -> None:
+        """Clear stale CPR when seeds are moved (CPR is now outdated)."""
+        self._mpr_panel.clear_cpr()
+        self.statusBar().showMessage(
+            "Seeds edited \u2014 click Run to update centerlines and CPR"
+        )
 
     # ------------------------------------------------------------------ #
     #  Events

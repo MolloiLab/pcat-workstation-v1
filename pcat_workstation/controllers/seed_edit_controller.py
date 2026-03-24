@@ -163,19 +163,8 @@ class SeedEditController(QObject):
     def on_right_click(
         self, view: VTKSliceView, qt_x: int, qt_y: int
     ) -> None:
-        """Handle right click: delete nearest waypoint."""
-        world = view.pixel_to_world(qt_x, qt_y)
-        voxel = self._world_to_voxel(*world)
-
-        vessel = self._state.current_vessel
-        if not vessel:
-            return
-
-        hit = self._state.find_nearest_seed(vessel, voxel, max_dist_vox=10.0)
-        if hit is not None:
-            seed_type, index = hit
-            self._state.select(vessel, seed_type, index)
-            self._state.delete_selected()
+        """Right-click: no-op (use Backspace to delete seeds)."""
+        pass
 
     def on_key_press(
         self, view: VTKSliceView, key: int, modifiers: int
