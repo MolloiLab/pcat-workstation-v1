@@ -157,9 +157,11 @@ class SeedEditController(QObject):
     def on_left_release(
         self, view: VTKSliceView, qt_x: int, qt_y: int
     ) -> None:
-        """Handle left mouse release: finalise drag with history push."""
-        if self._dragging:
-            # Push history now that the drag is complete
+        """Handle left mouse release: recompute centerline and refresh."""
+        if self._dragging and self._drag_vessel:
+            # Now that drag is done, recompute centerline and emit signals
+            self._state.recompute_centerline(self._drag_vessel)
+            self._state.seeds_changed.emit(self._drag_vessel)
             self._state.push_history()
             self.refresh_all_views()
 

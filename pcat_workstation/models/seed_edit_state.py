@@ -208,15 +208,15 @@ class SeedEditState(QObject):
     ) -> None:
         """Move a seed to *new_pos_ijk* without pushing history.
 
-        History should be pushed on mouse-release, not during dragging.
+        Does NOT recompute centerline or emit signals — that happens on
+        mouse-release to avoid the "flower" artifact where intermediate
+        centerlines are drawn during every drag pixel.
         """
         entry = self.seeds[vessel]
         if seed_type == "ostium":
             entry["ostium"] = list(new_pos_ijk)
         else:
             entry["waypoints"][index] = list(new_pos_ijk)
-        self.recompute_centerline(vessel)
-        self.seeds_changed.emit(vessel)
 
     def add_waypoint(self, vessel: str, pos_ijk: list) -> None:
         """Append a waypoint to *vessel* and recompute its centerline."""
