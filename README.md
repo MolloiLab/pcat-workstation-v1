@@ -63,7 +63,7 @@ python -m pcat_workstation.main
 |---------|-------------|
 | **LAD / LCx / RCA** | Select vessel — navigates all views to its ostium (keyboard: 1/2/3) |
 | **Hint bar** | Shows editing shortcuts at a glance |
-| **Sync Zoom** | Toggle synchronized zoom across all 3 MPR views |
+| **Zoom** | Pinch-to-zoom on trackpad or Ctrl+scroll (synced across all views) |
 | **W/L preset** | CT Vascular, Soft Tissue, Mediastinum, Lung, Bone |
 | **Run All** | Execute entire pipeline from scratch (Ctrl+Shift+R) |
 | **Export** | Generate PDF report |
@@ -74,8 +74,7 @@ The top-left, top-right, and bottom-left panels show **axial**, **coronal**, and
 - **Scroll** to change slice
 - **Left-click** to navigate crosshair (synced across all views)
 - **Right-drag** to adjust window/level
-- **Ctrl+scroll** to zoom
-- **Double-click** any panel to toggle fullscreen
+- **Pinch-to-zoom** on trackpad, or **Ctrl+scroll** (synced across views)
 
 ### CPR Viewer (Bottom-Right)
 
@@ -134,7 +133,7 @@ Seeds are auto-detected when the pipeline runs and **edit mode activates automat
 | **Ctrl+Shift+Z / Ctrl+Y** | Redo |
 | **Left/Right arrows** | Cycle through vessels |
 
-Seed markers: **squares** = ostium (vessel origin), **circles** = waypoints.
+Seed markers: **cube** = ostium (vessel origin), **sphere** = waypoints. Centerlines are drawn through all seeds in vessel color.
 
 ---
 
@@ -241,7 +240,7 @@ Settings are saved to `~/.pcat_workstation/config.json`.
 | **Scroll** | Change slice / move CPR needle |
 | **Ctrl+Scroll** | Zoom (MPR) / change A-B-C interval (CPR) |
 | **Shift+Scroll** | Rotate CPR cutting plane |
-| **Double-click** | Toggle fullscreen on any panel |
+| **Pinch-to-zoom** | Zoom in/out on trackpad (synced across MPR views) |
 
 ---
 

@@ -17,7 +17,7 @@ from vtkmodules.vtkRenderingCore import (
 from vtkmodules.vtkCommonCore import vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkPolyData, vtkCellArray
 from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper
-from vtkmodules.vtkFiltersSources import vtkRegularPolygonSource
+from vtkmodules.vtkFiltersSources import vtkRegularPolygonSource, vtkSphereSource, vtkCubeSource
 from vtkmodules.vtkFiltersCore import vtkAppendPolyData
 from vtk.util.numpy_support import numpy_to_vtk
 from typing import Optional, TYPE_CHECKING
@@ -59,7 +59,6 @@ class _SafeVTKWidget(QVTKRenderWindowInteractor):
     left_drag_event = Signal(int, int)      # (x_pixel, y_pixel) - emitted after 3px deadzone
     left_release_event = Signal(int, int)   # (x_pixel, y_pixel)
     key_press_event = Signal(int, int)      # (key_code, modifiers)
-    double_click_event = Signal()
 
     def __init__(self, parent=None, **kw):
         super().__init__(parent, **kw)
@@ -71,6 +70,8 @@ class _SafeVTKWidget(QVTKRenderWindowInteractor):
         self._left_start = (0, 0)
         self._left_dragging = False  # True once 3px deadzone exceeded
         self._DRAG_DEADZONE = 3  # pixels
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.grabGesture(Qt.PinchGesture)
 
     def request_render(self):
         """Schedule a VTK render after a short delay.
@@ -120,14 +121,28 @@ class _SafeVTKWidget(QVTKRenderWindowInteractor):
 
     def wheelEvent(self, ev):
         from PySide6.QtCore import Qt as _Qt
-        delta = ev.angleDelta().y()
+        # Use pixelDelta for trackpad gestures, angleDelta for mouse wheel
+        delta_y = ev.pixelDelta().y() if ev.pixelDelta().y() != 0 else ev.angleDelta().y()
         if ev.modifiers() & _Qt.ControlModifier:
-            self.ctrl_scroll_event.emit(1 if delta > 0 else -1)
-        elif delta > 0:
+            self.ctrl_scroll_event.emit(1 if delta_y > 0 else -1)
+        elif delta_y > 0:
             self.scroll_event.emit(1)
-        elif delta < 0:
+        elif delta_y < 0:
             self.scroll_event.emit(-1)
         ev.accept()
+
+    def event(self, ev):
+        """Handle native gesture events (macOS trackpad pinch-to-zoom)."""
+        from PySide6.QtCore import QEvent
+        if ev.type() == QEvent.NativeGesture:
+            from PySide6.QtGui import QNativeGestureEvent
+            if isinstance(ev, QNativeGestureEvent) and ev.gestureType() == Qt.ZoomNativeGesture:
+                delta = ev.value()
+                if abs(delta) > 0.001:
+                    self.ctrl_scroll_event.emit(1 if delta > 0 else -1)
+                ev.accept()
+                return True
+        return super().event(ev)
 
     def mousePressEvent(self, ev):
         from PySide6.QtCore import Qt as _Qt
@@ -181,11 +196,6 @@ class _SafeVTKWidget(QVTKRenderWindowInteractor):
         self.key_press_event.emit(ev.key(), int(ev.modifiers()))
         ev.accept()
 
-    def mouseDoubleClickEvent(self, ev):
-        from PySide6.QtCore import Qt as _Qt
-        if ev.button() == _Qt.LeftButton:
-            self.double_click_event.emit()
-        ev.accept()
 
 
 class VTKSliceView(QWidget):
@@ -198,7 +208,6 @@ class VTKSliceView(QWidget):
     slice_changed = Signal(int)
     crosshair_moved = Signal(float, float, float)
     window_level_changed = Signal(float, float)
-    fullscreen_requested = Signal(object)  # emits self
     zoom_changed = Signal(float)
 
     _ORIENTATION_LABELS = {"axial": "Axial", "coronal": "Coronal", "sagittal": "Sagittal"}
@@ -288,7 +297,6 @@ class VTKSliceView(QWidget):
         self._vtk_widget.right_press_event.connect(self._on_right_press)
         self._vtk_widget.right_drag_event.connect(self._on_right_drag)
         self._vtk_widget.left_click_event.connect(self._emit_crosshair_at_cursor)
-        self._vtk_widget.double_click_event.connect(lambda: self.fullscreen_requested.emit(self))
 
     def start_interactor(self) -> None:
         """No-op — events are handled via Qt signals, not VTK interactor."""
@@ -679,19 +687,16 @@ class VTKSliceView(QWidget):
         self._seed_actor_info.clear()
 
         sx, sy, sz = spacing[2], spacing[1], spacing[0]
-        radius = 2.0
-        n_sides = 32
-        arm = 1.0
 
         for vessel, entry in state.seeds.items():
             rgb = _VESSEL_COLORS_RGB.get(vessel, (232, 83, 58))
 
-            # --- Ostium (square marker) ---
+            # --- Ostium (cube marker) ---
             if entry["ostium"] is not None:
                 ijk = entry["ostium"]
                 z, y, x = float(ijk[0]), float(ijk[1]), float(ijk[2])
                 cx, cy, cz = x * sx, y * sy, z * sz
-                actors = self._create_square_marker(cx, cy, cz, radius, rgb)
+                actors = self._create_cube_marker(cx, cy, cz, 3.0, rgb)
                 self._seed_actor_info.append({
                     "actors": actors,
                     "world_pos": (cx, cy, cz),
@@ -700,13 +705,11 @@ class VTKSliceView(QWidget):
                     "index": 0,
                 })
 
-            # --- Waypoints (circle markers) ---
+            # --- Waypoints (sphere markers) ---
             for idx, wp in enumerate(entry["waypoints"]):
                 z, y, x = float(wp[0]), float(wp[1]), float(wp[2])
                 cx, cy, cz = x * sx, y * sy, z * sz
-                actors = self._create_circle_marker(
-                    cx, cy, cz, radius, n_sides, arm, rgb
-                )
+                actors = self._create_sphere_marker(cx, cy, cz, 1.5, rgb)
                 self._seed_actor_info.append({
                     "actors": actors,
                     "world_pos": (cx, cy, cz),
@@ -718,72 +721,37 @@ class VTKSliceView(QWidget):
         self._update_seed_visibility()
         self._render()
 
-    def _create_circle_marker(
+    def _create_sphere_marker(
         self,
         cx: float, cy: float, cz: float,
-        radius: float, n_sides: int, arm: float,
+        radius: float,
         rgb: tuple,
     ) -> list:
-        """Create circle + crosshair-stub actors for a waypoint seed."""
-        appender = vtkAppendPolyData()
-        for normal in [(0, 0, 1), (0, 1, 0), (1, 0, 0)]:
-            circle = vtkRegularPolygonSource()
-            circle.SetNumberOfSides(n_sides)
-            circle.SetRadius(radius)
-            circle.SetCenter(cx, cy, cz)
-            circle.SetNormal(*normal)
-            circle.GeneratePolygonOn()
-            circle.Update()
-            appender.AddInputData(circle.GetOutput())
-        appender.Update()
-        circle_pd = appender.GetOutput()
-
-        # Crosshair stubs
-        pts = vtkPoints()
-        lines = vtkCellArray()
-        pts.InsertNextPoint(cx - arm, cy, cz)
-        pts.InsertNextPoint(cx + arm, cy, cz)
-        pts.InsertNextPoint(cx, cy - arm, cz)
-        pts.InsertNextPoint(cx, cy + arm, cz)
-        pts.InsertNextPoint(cx, cy, cz - arm)
-        pts.InsertNextPoint(cx, cy, cz + arm)
-        for i in range(0, 6, 2):
-            lines.InsertNextCell(2)
-            lines.InsertCellPoint(i)
-            lines.InsertCellPoint(i + 1)
-        stub_pd = vtkPolyData()
-        stub_pd.SetPoints(pts)
-        stub_pd.SetLines(lines)
+        """Create a filled sphere marker for a waypoint seed."""
+        sphere = vtkSphereSource()
+        sphere.SetRadius(radius)
+        sphere.SetCenter(cx, cy, cz)
+        sphere.SetThetaResolution(16)
+        sphere.SetPhiResolution(16)
+        sphere.Update()
 
         actors = []
-        # White outline circles
+        # White wireframe outline
         m1 = vtkPolyDataMapper()
-        m1.SetInputData(circle_pd)
+        m1.SetInputData(sphere.GetOutput())
         a1 = vtkActor()
         a1.SetMapper(m1)
         a1.GetProperty().SetColor(1.0, 1.0, 1.0)
         a1.GetProperty().SetRepresentationToWireframe()
-        a1.GetProperty().SetLineWidth(2.0)
-        a1.GetProperty().SetOpacity(0.7)
+        a1.GetProperty().SetLineWidth(1.5)
+        a1.GetProperty().SetOpacity(0.5)
         self._vtk_renderer.AddActor(a1)
         self._overlay_actors.append(a1)
         actors.append(a1)
 
-        # White stub outline
-        m1s = vtkPolyDataMapper()
-        m1s.SetInputData(stub_pd)
-        a1s = vtkActor()
-        a1s.SetMapper(m1s)
-        a1s.GetProperty().SetColor(1.0, 1.0, 1.0)
-        a1s.GetProperty().SetLineWidth(3.0)
-        a1s.GetProperty().SetOpacity(0.7)
-        self._vtk_renderer.AddActor(a1s)
-        self._overlay_actors.append(a1s)
-        actors.append(a1s)
-
-        # Colored fill
+        # Colored solid fill
         m2 = vtkPolyDataMapper()
-        m2.SetInputData(circle_pd)
+        m2.SetInputData(sphere.GetOutput())
         a2 = vtkActor()
         a2.SetMapper(m2)
         a2.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
@@ -793,123 +761,47 @@ class VTKSliceView(QWidget):
         self._overlay_actors.append(a2)
         actors.append(a2)
 
-        # Colored stubs
-        m2s = vtkPolyDataMapper()
-        m2s.SetInputData(stub_pd)
-        a2s = vtkActor()
-        a2s.SetMapper(m2s)
-        a2s.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-        a2s.GetProperty().SetLineWidth(1.5)
-        a2s.GetProperty().SetOpacity(0.95)
-        self._vtk_renderer.AddActor(a2s)
-        self._overlay_actors.append(a2s)
-        actors.append(a2s)
-
         return actors
 
-    def _create_square_marker(
+    def _create_cube_marker(
         self,
         cx: float, cy: float, cz: float,
-        half_size: float,
+        size: float,
         rgb: tuple,
     ) -> list:
-        """Create square markers in 3 planes for an ostium seed."""
+        """Create a filled cube marker for an ostium seed."""
+        cube = vtkCubeSource()
+        cube.SetXLength(size)
+        cube.SetYLength(size)
+        cube.SetZLength(size)
+        cube.SetCenter(cx, cy, cz)
+        cube.Update()
+
         actors = []
-
-        # Build square outlines in XY, XZ, YZ planes
-        planes = [
-            # XY plane (normal Z)
-            [
-                (cx - half_size, cy - half_size, cz),
-                (cx + half_size, cy - half_size, cz),
-                (cx + half_size, cy + half_size, cz),
-                (cx - half_size, cy + half_size, cz),
-            ],
-            # XZ plane (normal Y)
-            [
-                (cx - half_size, cy, cz - half_size),
-                (cx + half_size, cy, cz - half_size),
-                (cx + half_size, cy, cz + half_size),
-                (cx - half_size, cy, cz + half_size),
-            ],
-            # YZ plane (normal X)
-            [
-                (cx, cy - half_size, cz - half_size),
-                (cx, cy + half_size, cz - half_size),
-                (cx, cy + half_size, cz + half_size),
-                (cx, cy - half_size, cz + half_size),
-            ],
-        ]
-
-        all_pts = vtkPoints()
-        all_lines = vtkCellArray()
-        pt_offset = 0
-        for corners in planes:
-            for pt in corners:
-                all_pts.InsertNextPoint(*pt)
-            # Closed square
-            all_lines.InsertNextCell(5)
-            for j in range(4):
-                all_lines.InsertCellPoint(pt_offset + j)
-            all_lines.InsertCellPoint(pt_offset)
-            pt_offset += 4
-
-        sq_pd = vtkPolyData()
-        sq_pd.SetPoints(all_pts)
-        sq_pd.SetLines(all_lines)
-
-        # White outline
+        # White wireframe outline
         m1 = vtkPolyDataMapper()
-        m1.SetInputData(sq_pd)
+        m1.SetInputData(cube.GetOutput())
         a1 = vtkActor()
         a1.SetMapper(m1)
         a1.GetProperty().SetColor(1.0, 1.0, 1.0)
-        a1.GetProperty().SetLineWidth(3.0)
-        a1.GetProperty().SetOpacity(0.7)
+        a1.GetProperty().SetRepresentationToWireframe()
+        a1.GetProperty().SetLineWidth(1.5)
+        a1.GetProperty().SetOpacity(0.5)
         self._vtk_renderer.AddActor(a1)
         self._overlay_actors.append(a1)
         actors.append(a1)
 
-        # Vessel-colored overlay
+        # Colored solid fill
         m2 = vtkPolyDataMapper()
-        m2.SetInputData(sq_pd)
+        m2.SetInputData(cube.GetOutput())
         a2 = vtkActor()
         a2.SetMapper(m2)
         a2.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-        a2.GetProperty().SetLineWidth(2.0)
-        a2.GetProperty().SetOpacity(0.95)
+        a2.GetProperty().SetRepresentationToSurface()
+        a2.GetProperty().SetOpacity(0.9)
         self._vtk_renderer.AddActor(a2)
         self._overlay_actors.append(a2)
         actors.append(a2)
-
-        # Crosshair stubs for center indication
-        arm = 1.0
-        pts = vtkPoints()
-        lines = vtkCellArray()
-        pts.InsertNextPoint(cx - arm, cy, cz)
-        pts.InsertNextPoint(cx + arm, cy, cz)
-        pts.InsertNextPoint(cx, cy - arm, cz)
-        pts.InsertNextPoint(cx, cy + arm, cz)
-        pts.InsertNextPoint(cx, cy, cz - arm)
-        pts.InsertNextPoint(cx, cy, cz + arm)
-        for i in range(0, 6, 2):
-            lines.InsertNextCell(2)
-            lines.InsertCellPoint(i)
-            lines.InsertCellPoint(i + 1)
-        stub_pd = vtkPolyData()
-        stub_pd.SetPoints(pts)
-        stub_pd.SetLines(lines)
-
-        m3 = vtkPolyDataMapper()
-        m3.SetInputData(stub_pd)
-        a3 = vtkActor()
-        a3.SetMapper(m3)
-        a3.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-        a3.GetProperty().SetLineWidth(1.5)
-        a3.GetProperty().SetOpacity(0.95)
-        self._vtk_renderer.AddActor(a3)
-        self._overlay_actors.append(a3)
-        actors.append(a3)
 
         return actors
 
@@ -1071,129 +963,20 @@ class VTKSliceView(QWidget):
         self._render()
 
     def set_seed_overlay(self, seeds_dict: dict, spacing: list) -> None:
-        """Show seed/ostium points as circle (disk) markers with short crosshair stubs.
+        """Show seed/ostium points as filled sphere dots.
 
-        Each seed renders as three oriented circles (XY, XZ, YZ planes) so the
-        marker is visible from any view orientation, plus short crosshair stubs
-        for precise center indication. Two-layer rendering: white outline
-        underneath, vessel-colored fill on top.
+        Each seed renders as a small solid sphere visible from any angle.
+        Two-layer rendering: white wireframe outline underneath,
+        vessel-colored solid fill on top.
         """
         sx, sy, sz = spacing[2], spacing[1], spacing[0]
-        radius = 2.0   # circle radius in mm
-        n_sides = 32    # polygon sides (approximates circle)
-        arm = 1.0       # short crosshair stub arm length in mm
 
         for vessel, ijk in seeds_dict.items():
             z, y, x = float(ijk[0]), float(ijk[1]), float(ijk[2])
             cx, cy, cz = x * sx, y * sy, z * sz
             rgb = _VESSEL_COLORS_RGB.get(vessel, (232, 83, 58))
-            seed_actors = []  # collect actors for this seed
 
-            # --- Build circle geometry in 3 planes ---
-            appender = vtkAppendPolyData()
-
-            # XY plane circle (normal along Z)
-            circle_xy = vtkRegularPolygonSource()
-            circle_xy.SetNumberOfSides(n_sides)
-            circle_xy.SetRadius(radius)
-            circle_xy.SetCenter(cx, cy, cz)
-            circle_xy.SetNormal(0, 0, 1)
-            circle_xy.GeneratePolygonOn()
-            circle_xy.Update()
-            appender.AddInputData(circle_xy.GetOutput())
-
-            # XZ plane circle (normal along Y)
-            circle_xz = vtkRegularPolygonSource()
-            circle_xz.SetNumberOfSides(n_sides)
-            circle_xz.SetRadius(radius)
-            circle_xz.SetCenter(cx, cy, cz)
-            circle_xz.SetNormal(0, 1, 0)
-            circle_xz.GeneratePolygonOn()
-            circle_xz.Update()
-            appender.AddInputData(circle_xz.GetOutput())
-
-            # YZ plane circle (normal along X)
-            circle_yz = vtkRegularPolygonSource()
-            circle_yz.SetNumberOfSides(n_sides)
-            circle_yz.SetRadius(radius)
-            circle_yz.SetCenter(cx, cy, cz)
-            circle_yz.SetNormal(1, 0, 0)
-            circle_yz.GeneratePolygonOn()
-            circle_yz.Update()
-            appender.AddInputData(circle_yz.GetOutput())
-
-            appender.Update()
-            circle_pd = appender.GetOutput()
-
-            # --- Build short crosshair stub lines ---
-            points = vtkPoints()
-            lines = vtkCellArray()
-            # X arm
-            points.InsertNextPoint(cx - arm, cy, cz)
-            points.InsertNextPoint(cx + arm, cy, cz)
-            # Y arm
-            points.InsertNextPoint(cx, cy - arm, cz)
-            points.InsertNextPoint(cx, cy + arm, cz)
-            # Z arm
-            points.InsertNextPoint(cx, cy, cz - arm)
-            points.InsertNextPoint(cx, cy, cz + arm)
-            for i in range(0, 6, 2):
-                lines.InsertNextCell(2)
-                lines.InsertCellPoint(i)
-                lines.InsertCellPoint(i + 1)
-
-            stub_pd = vtkPolyData()
-            stub_pd.SetPoints(points)
-            stub_pd.SetLines(lines)
-
-            # --- Layer 1: White outline circles (edge only) ---
-            m1 = vtkPolyDataMapper()
-            m1.SetInputData(circle_pd)
-            a1 = vtkActor()
-            a1.SetMapper(m1)
-            a1.GetProperty().SetColor(1.0, 1.0, 1.0)
-            a1.GetProperty().SetRepresentationToWireframe()
-            a1.GetProperty().SetLineWidth(2.0)
-            a1.GetProperty().SetOpacity(0.7)
-            self._vtk_renderer.AddActor(a1)
-            self._overlay_actors.append(a1)
-            seed_actors.append(a1)
-
-            # White outline for stubs
-            m1s = vtkPolyDataMapper()
-            m1s.SetInputData(stub_pd)
-            a1s = vtkActor()
-            a1s.SetMapper(m1s)
-            a1s.GetProperty().SetColor(1.0, 1.0, 1.0)
-            a1s.GetProperty().SetLineWidth(3.0)
-            a1s.GetProperty().SetOpacity(0.7)
-            self._vtk_renderer.AddActor(a1s)
-            self._overlay_actors.append(a1s)
-            seed_actors.append(a1s)
-
-            # --- Layer 2: Vessel-colored filled circles ---
-            m2 = vtkPolyDataMapper()
-            m2.SetInputData(circle_pd)
-            a2 = vtkActor()
-            a2.SetMapper(m2)
-            a2.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-            a2.GetProperty().SetRepresentationToSurface()
-            a2.GetProperty().SetOpacity(0.9)
-            self._vtk_renderer.AddActor(a2)
-            self._overlay_actors.append(a2)
-            seed_actors.append(a2)
-
-            # Colored stubs on top
-            m2s = vtkPolyDataMapper()
-            m2s.SetInputData(stub_pd)
-            a2s = vtkActor()
-            a2s.SetMapper(m2s)
-            a2s.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-            a2s.GetProperty().SetLineWidth(1.5)
-            a2s.GetProperty().SetOpacity(0.95)
-            self._vtk_renderer.AddActor(a2s)
-            self._overlay_actors.append(a2s)
-            seed_actors.append(a2s)
+            seed_actors = self._create_sphere_marker(cx, cy, cz, 1.5, rgb)
 
             self._seed_actor_info.append({
                 "actors": seed_actors,

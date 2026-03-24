@@ -186,9 +186,6 @@ class MainWindow(QMainWindow):
         self._toolbar.vessel_changed.connect(self._on_vessel_changed)
         self._toolbar.wl_preset_changed.connect(self._on_wl_changed)
 
-        # Toolbar — Sync zoom
-        self._toolbar.sync_zoom_changed.connect(self._mpr_panel.set_sync_zoom)
-
         # Toolbar — Export PDF report
         self._toolbar.export_clicked.connect(self._on_export)
 
@@ -686,6 +683,18 @@ class MainWindow(QMainWindow):
         """Remove a session from the recent projects list."""
         self._dicom_index.remove_recent(Path(session_dir))
         self._load_recent_projects()
+        # If the removed session is the current one, clear everything
+        if self._session and str(self._session.session_dir) == session_dir:
+            self._mpr_panel.clear_overlays()
+            self._mpr_panel.clear_cpr()
+            self._progress_panel.reset_stages()
+            self._progress_panel.clear_vessel_summary()
+            self._progress_panel.clear_progress()
+            self._edit_state = None
+            self._edit_controller = None
+            self._session = None
+            self._central_stack.setCurrentIndex(0)
+            self.statusBar().showMessage("Session removed")
 
     @Slot()
     def _on_export(self) -> None:
@@ -848,6 +857,19 @@ class MainWindow(QMainWindow):
         self._mpr_panel.set_edit_mode(True)
         self._mpr_panel.refresh_seed_overlay(self._edit_state)
 
+        # Show centerlines from edit state on MPR views
+        meta = self._session.get_meta() if self._session else None
+        if meta:
+            cl_dict = {}
+            for vessel, cl in self._edit_state.centerlines.items():
+                if cl is not None:
+                    cl_dict[vessel] = cl
+            if cl_dict:
+                self._mpr_panel.set_centerline_overlay(cl_dict, meta["spacing_mm"])
+
+        # Refresh centerlines when seeds are edited
+        self._edit_state.centerline_changed.connect(self._on_edit_centerline_changed)
+
         self.statusBar().showMessage("Seeds loaded \u2014 click to select, drag to move")
 
     @Slot()
@@ -865,6 +887,20 @@ class MainWindow(QMainWindow):
 
         # Re-run pipeline (edit mode stays active; seeds_ready will refresh it)
         self._on_run_pipeline()
+
+    def _on_edit_centerline_changed(self, vessel: str) -> None:
+        """Refresh centerline overlay when seeds are edited."""
+        if self._edit_state is None or self._session is None:
+            return
+        meta = self._session.get_meta()
+        if not meta:
+            return
+        cl_dict = {}
+        for v, cl in self._edit_state.centerlines.items():
+            if cl is not None:
+                cl_dict[v] = cl
+        if cl_dict:
+            self._mpr_panel.set_centerline_overlay(cl_dict, meta["spacing_mm"])
 
     # ------------------------------------------------------------------ #
     #  Events
