@@ -106,17 +106,25 @@ class SeedEditController(QObject):
 
         if hit is not None:
             seed_type, index = hit
-            self._state.select(vessel, seed_type, index)
-            # Prepare for potential drag
-            self._dragging = False  # will become True on first drag event
-            self._drag_vessel = vessel
-            self._drag_type = seed_type
-            self._drag_index = index
+            # Check if this seed is ALREADY selected (select-then-drag model)
+            if (self._state.selected_vessel == vessel
+                    and self._state.selected_type == seed_type
+                    and self._state.selected_idx == (index if seed_type == "waypoint" else -1)):
+                # Already selected → prepare for drag
+                self._dragging = False
+                self._drag_vessel = vessel
+                self._drag_type = seed_type
+                self._drag_index = index
+            else:
+                # Not selected → just select it (no drag on first click)
+                self._state.select(vessel, seed_type, index)
+                self._dragging = False
+                self._drag_vessel = ""  # no drag on first click
         else:
+            # Empty space → deselect only (no crosshair navigation)
             self._state.clear_selection()
             self._dragging = False
-            # No seed hit — crosshair navigation happens automatically
-            # via left_click_event -> _emit_crosshair_at_cursor (kept connected)
+            self._drag_vessel = ""
 
     def on_left_drag(
         self, view: VTKSliceView, qt_x: int, qt_y: int
