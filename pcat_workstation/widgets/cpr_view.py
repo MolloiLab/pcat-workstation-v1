@@ -622,10 +622,6 @@ class _CPRPanel(QWidget):
 
         return float(np.sqrt(dx_mm**2 + dy_mm**2))
 
-    def mouseDoubleClickEvent(self, ev: QMouseEvent) -> None:
-        if ev.button() == Qt.LeftButton:
-            self._root.fullscreen_requested.emit(self._root)
-        ev.accept()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -797,10 +793,6 @@ class _CrossSectionPanel(QWidget):
             self._last_drag_pos = None
         super().mouseReleaseEvent(ev)
 
-    def mouseDoubleClickEvent(self, ev: QMouseEvent) -> None:
-        if ev.button() == Qt.LeftButton:
-            self._root.fullscreen_requested.emit(self._root)
-        ev.accept()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -818,7 +810,6 @@ class CPRView(QWidget):
     needle_moved = Signal(float, float, float)  # x_mm, y_mm, z_mm
     vessel_changed = Signal(str)
     window_level_changed = Signal(float, float)
-    fullscreen_requested = Signal(object)  # emits self
 
     # Cross-section parameters
     _CS_WIDTH_MM: float = 15.0
