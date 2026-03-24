@@ -208,7 +208,7 @@ class ProgressPanel(QWidget):
         self._progress_text.setMaximumBlockCount(200)
         self._progress_text.setStyleSheet(
             "QPlainTextEdit { background-color: #1c1c1e; color: #8e8e93; "
-            "font-family: 'SF Mono', 'Menlo', monospace; font-size: 11pt; "
+            "font-family: 'Menlo', 'Courier New', monospace; font-size: 11pt; "
             "border: 1px solid #38383a; }"
         )
         self._progress_text.setMinimumHeight(80)

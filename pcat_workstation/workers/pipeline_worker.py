@@ -7,6 +7,8 @@ responsive.
 
 from __future__ import annotations
 
+import io
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -16,6 +18,45 @@ import numpy as np
 from PySide6.QtCore import QThread, Signal
 
 from pcat_workstation.models.patient_session import PIPELINE_STAGES, PatientSession
+
+
+class _TeeWriter(io.TextIOBase):
+    """Tee stdout/stderr: writes to the original stream AND emits a Qt signal.
+
+    Buffers partial lines so that each signal emission is a complete line.
+    Filters out tqdm control characters (\\r, ANSI escapes) for clean display.
+    """
+
+    def __init__(self, original, signal_fn):
+        super().__init__()
+        self._original = original
+        self._signal_fn = signal_fn
+        self._buf = ""
+
+    def write(self, text: str) -> int:
+        # Always write to original (terminal)
+        if self._original is not None:
+            self._original.write(text)
+            self._original.flush()
+        # Buffer and emit complete lines to the UI
+        self._buf += text
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            line = line.strip()
+            if line and not line.startswith("\x1b"):  # skip ANSI escapes
+                self._signal_fn(line)
+        # Handle \r (tqdm progress bar overwrite)
+        if "\r" in self._buf:
+            parts = self._buf.split("\r")
+            last = parts[-1].strip()
+            if last and not last.startswith("\x1b"):
+                self._signal_fn(last)
+            self._buf = ""
+        return len(text)
+
+    def flush(self):
+        if self._original is not None:
+            self._original.flush()
 
 
 # Default vessels when none are specified
@@ -106,6 +147,21 @@ class PipelineWorker(QThread):
 
     def run(self) -> None:  # noqa: C901 – sequential pipeline stages
         """Execute the pipeline stages sequentially."""
+        # Redirect stdout/stderr so that TotalSegmentator's print() output
+        # (progress bars, status messages) appears in the Progress panel.
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        tee_out = _TeeWriter(old_stdout, self._emit)
+        tee_err = _TeeWriter(old_stderr, self._emit)
+        sys.stdout = tee_out
+        sys.stderr = tee_err
+        try:
+            self._run_pipeline()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+    def _run_pipeline(self) -> None:  # noqa: C901
+        """Internal pipeline execution (stdout/stderr already tee'd)."""
         # Late imports to avoid import-time side effects (TotalSegmentator,
         # matplotlib, etc.) and keep the GUI import graph lightweight.
         try:
