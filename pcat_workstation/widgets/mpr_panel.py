@@ -186,18 +186,6 @@ class MPRPanel(QWidget):
         for viewer in (self._axial, self._coronal, self._sagittal):
             viewer.clear_overlays()
 
-    def set_seed_overlay(self, seeds_dict: dict, spacing: list) -> None:
-        for viewer in (self._axial, self._coronal, self._sagittal):
-            viewer.set_seed_overlay(seeds_dict, spacing)
-
-    def set_centerline_overlay(self, centerlines_dict: dict, spacing: list) -> None:
-        for viewer in (self._axial, self._coronal, self._sagittal):
-            viewer.set_centerline_overlay(centerlines_dict, spacing)
-
-    def set_contour_overlay(self, contour_results_dict: dict) -> None:
-        for viewer in (self._axial, self._coronal, self._sagittal):
-            viewer.set_contour_overlay(contour_results_dict)
-
     def set_voi_overlay(self, voi_masks_dict: dict, spacing: list) -> None:
         for viewer in (self._axial, self._coronal, self._sagittal):
             viewer.set_voi_overlay(voi_masks_dict, spacing)
@@ -223,21 +211,22 @@ class MPRPanel(QWidget):
         """Switch which vessel's CPR is displayed."""
         self._cpr_view.set_vessel(vessel)
 
+    def set_seed_editor(self, editor) -> None:
+        """Set the SeedEditor on all VTK slice views."""
+        for viewer in (self._axial, self._coronal, self._sagittal):
+            viewer.set_seed_editor(editor)
+
+    def refresh_overlays(self) -> None:
+        """Trigger a repaint of the QPainter overlay on all views."""
+        for viewer in (self._axial, self._coronal, self._sagittal):
+            viewer._overlay.update()
+
     def set_edit_mode(self, enabled: bool) -> None:
-        """Toggle edit mode on all VTK slice views."""
-        for viewer in (self._axial, self._coronal, self._sagittal):
-            viewer.set_edit_mode(enabled)
+        """No-op kept for backward compatibility.
 
-    def set_edit_controller(self, controller) -> None:
-        """Set the edit controller on all VTK slice views."""
-        for viewer in (self._axial, self._coronal, self._sagittal):
-            viewer.set_edit_controller(controller)
-
-    def refresh_seed_overlay(self, state) -> None:
-        """Rebuild seed overlays from SeedEditState."""
-        if self._spacing is not None:
-            for viewer in (self._axial, self._coronal, self._sagittal):
-                viewer.set_seed_overlay_extended(state, self._spacing)
+        Edit mode is now always active when a SeedEditor is attached.
+        """
+        pass
 
     def clear_cpr(self) -> None:
         """Clear CPR data."""

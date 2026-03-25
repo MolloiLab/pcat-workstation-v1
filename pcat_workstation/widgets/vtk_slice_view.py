@@ -17,22 +17,10 @@ from vtkmodules.vtkRenderingCore import (
 from vtkmodules.vtkCommonCore import vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkPolyData, vtkCellArray
 from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper
-from vtkmodules.vtkFiltersSources import vtkRegularPolygonSource, vtkSphereSource, vtkCubeSource
-from vtkmodules.vtkFiltersCore import vtkAppendPolyData
 from vtk.util.numpy_support import numpy_to_vtk
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
-if TYPE_CHECKING:
-    from pcat_workstation.models.seed_edit_state import SeedEditState
-
-
-# Horos-style vessel colors (from pipeline/visualize.py)
-_VESSEL_COLORS_RGB = {
-    "LAD": (232, 83, 58),    # #E8533A — red-orange
-    "LCx": (74, 144, 217),   # #4A90D9 — blue
-    "LCX": (74, 144, 217),
-    "RCA": (46, 204, 113),   # #2ECC71 — green
-}
+from pcat_workstation.widgets.overlay_painter import OverlayPainter
 
 
 class _SafeVTKWidget(QVTKRenderWindowInteractor):
@@ -246,16 +234,13 @@ class VTKSliceView(QWidget):
         self._window: float = float(DEFAULT_WINDOW_WIDTH)
         self._level: float = float(DEFAULT_WINDOW_LEVEL)
         self._overlay_actors: list = []
-        self._seed_actor_info: list = []  # [{"actors": [...], "world_pos": (cx, cy, cz)}]
         self._voi_slice = None
         self._voi_mapper = None
         self._crosshair_actors: list = []  # [h_line_actor, v_line_actor]
         self._crosshair_pos: Optional[tuple] = None  # (x_mm, y_mm, z_mm)
 
-        # Edit mode state
-        self._edit_mode: bool = False
-        self._edit_controller = None  # SeedEditController reference
-        self._highlight_actors: list = []  # yellow selection highlight actors
+        # SeedEditor reference (new unified model+controller)
+        self._seed_editor = None
 
         self._build_ui()
         self._setup_vtk()
@@ -284,6 +269,14 @@ class VTKSliceView(QWidget):
         # VTK render widget (guarded against reentrant render on macOS)
         self._vtk_widget = _SafeVTKWidget(self)
         layout.addWidget(self._vtk_widget, stretch=1)
+
+        # QPainter overlay for seeds/centerlines (sits on top of VTK widget)
+        self._overlay = OverlayPainter(self)
+        self._overlay.raise_()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._overlay.setGeometry(self._vtk_widget.geometry())
 
     # ── VTK pipeline ────────────────────────────────────────────────
 
@@ -338,6 +331,7 @@ class VTKSliceView(QWidget):
         cam.SetParallelScale(new_scale)
 
         self._vtk_renderer.ResetCameraClippingRange()
+        self._update_overlay_params()
         self._render()
         self.zoom_changed.emit(new_scale)
 
@@ -449,8 +443,7 @@ class VTKSliceView(QWidget):
             else:
                 self._voi_mapper.SetOrientationToX()
 
-        self._update_seed_visibility()
-        self._update_centerline_clip()
+        self._update_overlay_params()
         self._update_header()
         self._render()
         self.slice_changed.emit(self._current_slice)
@@ -458,31 +451,6 @@ class VTKSliceView(QWidget):
     def get_slice(self) -> int:
         """Return current slice index."""
         return self._current_slice
-
-    def _update_seed_visibility(self) -> None:
-        """Show seed markers only when the current slice is within ±2 mm."""
-        if not self._seed_actor_info or self._volume is None:
-            return
-        sx, sy, sz = self._spacing[2], self._spacing[1], self._spacing[0]
-        # Current slice position in mm along the slicing axis
-        if self._orientation == "axial":
-            slice_mm = self._current_slice * sz
-        elif self._orientation == "coronal":
-            slice_mm = self._current_slice * sy
-        else:  # sagittal
-            slice_mm = self._current_slice * sx
-
-        for info in self._seed_actor_info:
-            cx, cy, cz = info["world_pos"]
-            if self._orientation == "axial":
-                seed_mm = cz
-            elif self._orientation == "coronal":
-                seed_mm = cy
-            else:
-                seed_mm = cx
-            visible = abs(seed_mm - slice_mm) <= 2.0
-            for actor in info["actors"]:
-                actor.SetVisibility(visible)
 
     def _update_header(self) -> None:
         label = self._ORIENTATION_LABELS[self._orientation]
@@ -633,315 +601,169 @@ class VTKSliceView(QWidget):
         wx, wy, wz = self.pixel_to_world(qt_x, qt_y)
         self.crosshair_moved.emit(wx, wy, wz)
 
-    # ── Edit mode ──────────────────────────────────────────────────
+    # ── SeedEditor integration ───────────────────────────────────
 
-    def set_edit_mode(self, enabled: bool) -> None:
-        """Toggle edit mode on/off.
+    def set_seed_editor(self, editor) -> None:
+        """Set the SeedEditor for overlay rendering and mouse interaction.
 
-        When enabled, mouse events are forwarded to the attached
-        ``SeedEditController`` in addition to crosshair navigation.
-        Crosshair on click remains active so clicking empty space
-        still navigates.
+        Connects editor signals to trigger overlay repaints and wires
+        mouse/key events from the VTK widget to the SeedEditor.
         """
-        if enabled == self._edit_mode:
+        self._seed_editor = editor
+        self._overlay.set_seed_editor(editor)
+
+        # Repaint overlay when seeds/centerlines/selection change
+        editor.seeds_changed.connect(lambda _v: self._overlay.update())
+        editor.centerline_changed.connect(lambda _v: self._overlay.update())
+        editor.selection_changed.connect(self._overlay.update)
+
+        # Wire mouse events to SeedEditor
+        self._vtk_widget.left_press_event.connect(self._on_left_press)
+        self._vtk_widget.left_drag_event.connect(self._on_left_drag)
+        self._vtk_widget.left_release_event.connect(self._on_left_release)
+        self._vtk_widget.key_press_event.connect(self._on_key_press)
+
+    def _on_left_press(self, qt_x: int, qt_y: int) -> None:
+        """Forward left-press to SeedEditor with voxel coordinates."""
+        if self._seed_editor is None:
             return
-        self._edit_mode = enabled
+        voxel = self._pixel_to_voxel(qt_x, qt_y)
+        if voxel is not None:
+            self._seed_editor.on_left_press(voxel)
+            self._overlay.update()
 
-        if not enabled:
-            # Leaving edit mode — clear selection highlights
-            self.clear_selection_highlight()
+    def _on_left_drag(self, qt_x: int, qt_y: int) -> None:
+        """Forward left-drag to SeedEditor with voxel coordinates."""
+        if self._seed_editor is None:
+            return
+        voxel = self._pixel_to_voxel(qt_x, qt_y)
+        if voxel is not None:
+            self._seed_editor.on_left_drag(voxel)
+            self._overlay.update()
 
-    def set_edit_controller(self, controller) -> None:
-        """Attach a :class:`SeedEditController` and wire signals.
+    def _on_left_release(self, qt_x: int, qt_y: int) -> None:
+        """Forward left-release to SeedEditor."""
+        if self._seed_editor is None:
+            return
+        self._seed_editor.on_left_release()
+        self._overlay.update()
 
-        The controller's event handlers receive ``(view, x, y)`` so we
-        use ``functools.partial`` to curry *self* as the first argument.
+    def _on_key_press(self, key: int, modifiers: int) -> None:
+        """Forward key events to SeedEditor.
+
+        Enter/Return adds a waypoint at the crosshair position (not mouse).
+        Other keys (Delete, Ctrl+Z, arrows, etc.) are forwarded directly.
         """
-        from functools import partial
+        if self._seed_editor is None:
+            return
 
-        # Disconnect previous controller if any
-        if self._edit_controller is not None:
-            self._disconnect_edit_signals()
+        _ctrl = Qt.ControlModifier.value if hasattr(Qt.ControlModifier, "value") else int(Qt.ControlModifier)
+        _shift = Qt.ShiftModifier.value if hasattr(Qt.ShiftModifier, "value") else int(Qt.ShiftModifier)
+        ctrl = bool(modifiers & _ctrl)
+        shift = bool(modifiers & _shift)
 
-        self._edit_controller = controller
+        if key in (Qt.Key_Return, Qt.Key_Enter):
+            # Add waypoint at crosshair position (not mouse position)
+            if self._crosshair_pos is not None:
+                x_mm, y_mm, z_mm = self._crosshair_pos
+                sx, sy, sz = self._spacing[2], self._spacing[1], self._spacing[0]
+                voxel = [
+                    z_mm / sz if sz > 0 else 0.0,
+                    y_mm / sy if sy > 0 else 0.0,
+                    x_mm / sx if sx > 0 else 0.0,
+                ]
+                self._seed_editor.add_waypoint_at(voxel)
 
-        if controller is not None:
-            v = self  # captured by lambdas
-            self._vtk_widget.left_press_event.connect(
-                lambda x, y, _v=v: controller.on_left_press(_v, x, y)
-            )
-            self._vtk_widget.left_drag_event.connect(
-                lambda x, y, _v=v: controller.on_left_drag(_v, x, y)
-            )
-            self._vtk_widget.left_release_event.connect(
-                lambda x, y, _v=v: controller.on_left_release(_v, x, y)
-            )
-            self._vtk_widget.key_press_event.connect(
-                lambda key, mods, _v=v: controller.on_key_press(_v, key, mods)
-            )
+        elif key in (Qt.Key_Backspace, Qt.Key_Delete):
+            self._seed_editor.delete_selected()
 
-    def _disconnect_edit_signals(self) -> None:
-        """Disconnect controller signals from the VTK widget."""
-        for sig in (
-            self._vtk_widget.left_press_event,
-            self._vtk_widget.left_drag_event,
-            self._vtk_widget.left_release_event,
-            self._vtk_widget.key_press_event,
-        ):
-            try:
-                sig.disconnect()
-            except RuntimeError:
-                pass
+        elif key == Qt.Key_Z and ctrl and shift:
+            self._seed_editor.redo()
 
-        # Re-add non-edit connections that were on these signals
-        # (left_press/drag/release have no default connections besides edit)
+        elif key == Qt.Key_Z and ctrl:
+            self._seed_editor.undo()
 
-    def set_seed_overlay_extended(
-        self, state: SeedEditState, spacing: list
-    ) -> None:
-        """Render seeds with distinct markers: squares for ostia, circles for waypoints.
+        elif key == Qt.Key_Y and ctrl:
+            self._seed_editor.redo()
 
-        Stores ``{"vessel", "type", "index"}`` metadata alongside each
-        seed's actors in ``_seed_actor_info`` so the controller can map
-        pick results back to the data model.
+        elif key == Qt.Key_S and ctrl:
+            self._seed_editor.save_requested.emit()
+
+        elif key == Qt.Key_Left:
+            self._seed_editor.cycle_selection(-1)
+
+        elif key == Qt.Key_Right:
+            self._seed_editor.cycle_selection(1)
+
+        self._overlay.update()
+
+    def _pixel_to_voxel(self, qt_x: int, qt_y: int) -> Optional[list]:
+        """Convert Qt pixel coordinates to voxel [z, y, x].
+
+        Reverses the voxel_to_screen conversion from OverlayPainter,
+        using the VTK camera parameters.
         """
-        # Remove existing seed overlay actors
-        for info in self._seed_actor_info:
-            for actor in info["actors"]:
-                self._vtk_renderer.RemoveActor(actor)
-        # Also remove from _overlay_actors list
-        actor_set = set()
-        for info in self._seed_actor_info:
-            for actor in info["actors"]:
-                actor_set.add(id(actor))
-        self._overlay_actors = [
-            a for a in self._overlay_actors if id(a) not in actor_set
-        ]
-        self._seed_actor_info.clear()
+        if self._volume is None:
+            return None
 
-        sx, sy, sz = spacing[2], spacing[1], spacing[0]
+        cam = self._vtk_renderer.GetActiveCamera()
+        ps = cam.GetParallelScale()
+        if ps <= 0:
+            return None
 
-        for vessel, entry in state.seeds.items():
-            rgb = _VESSEL_COLORS_RGB.get(vessel, (232, 83, 58))
+        fx, fy, fz = cam.GetFocalPoint()
+        w = self._vtk_widget.width()
+        h = self._vtk_widget.height()
+        if h <= 0:
+            return None
 
-            # --- Ostium (cube marker) ---
-            if entry["ostium"] is not None:
-                ijk = entry["ostium"]
-                z, y, x = float(ijk[0]), float(ijk[1]), float(ijk[2])
-                cx, cy, cz = x * sx, y * sy, z * sz
-                actors = self._create_cube_marker(cx, cy, cz, 3.5, rgb)
-                self._seed_actor_info.append({
-                    "actors": actors,
-                    "world_pos": (cx, cy, cz),
-                    "vessel": vessel,
-                    "type": "ostium",
-                    "index": 0,
-                })
+        scale = h / (2.0 * ps)  # pixels per mm
+        sx, sy, sz = self._spacing[2], self._spacing[1], self._spacing[0]
 
-            # --- Waypoints (sphere markers) ---
-            for idx, wp in enumerate(entry["waypoints"]):
-                z, y, x = float(wp[0]), float(wp[1]), float(wp[2])
-                cx, cy, cz = x * sx, y * sy, z * sz
-                actors = self._create_sphere_marker(cx, cy, cz, 1.5, rgb)
-                self._seed_actor_info.append({
-                    "actors": actors,
-                    "world_pos": (cx, cy, cz),
-                    "vessel": vessel,
-                    "type": "waypoint",
-                    "index": idx,
-                })
-
-        self._update_seed_visibility()
-        self._render()
-
-    def _create_sphere_marker(
-        self,
-        cx: float, cy: float, cz: float,
-        radius: float,
-        rgb: tuple,
-    ) -> list:
-        """Create a flat 2D disc marker for a waypoint seed (aligned to slice plane)."""
-        from vtkmodules.vtkFiltersSources import vtkDiskSource
-        disk = vtkDiskSource()
-        disk.SetInnerRadius(0)
-        disk.SetOuterRadius(radius)
-        disk.SetRadialResolution(1)
-        disk.SetCircumferentialResolution(24)
-        disk.Update()
-
-        # Transform to position and align to slice plane
-        from vtkmodules.vtkCommonTransforms import vtkTransform
-        from vtkmodules.vtkFiltersGeneral import vtkTransformPolyDataFilter
-        t = vtkTransform()
-        t.Translate(cx, cy, cz)
-        if self._orientation == "coronal":
-            t.RotateX(90)
-        elif self._orientation == "sagittal":
-            t.RotateY(90)
-        # axial: disk already in XY plane (default)
-        tf = vtkTransformPolyDataFilter()
-        tf.SetInputData(disk.GetOutput())
-        tf.SetTransform(t)
-        tf.Update()
-
-        actors = []
-        # White outline
-        m1 = vtkPolyDataMapper()
-        m1.SetInputData(tf.GetOutput())
-        a1 = vtkActor()
-        a1.SetMapper(m1)
-        a1.GetProperty().SetColor(1.0, 1.0, 1.0)
-        a1.GetProperty().SetRepresentationToWireframe()
-        a1.GetProperty().SetLineWidth(1.0)
-        a1.GetProperty().SetOpacity(0.7)
-        self._vtk_renderer.AddActor(a1)
-        self._overlay_actors.append(a1)
-        actors.append(a1)
-
-        # Colored fill
-        m2 = vtkPolyDataMapper()
-        m2.SetInputData(tf.GetOutput())
-        a2 = vtkActor()
-        a2.SetMapper(m2)
-        a2.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-        a2.GetProperty().SetRepresentationToSurface()
-        a2.GetProperty().SetOpacity(0.85)
-        self._vtk_renderer.AddActor(a2)
-        self._overlay_actors.append(a2)
-        actors.append(a2)
-
-        return actors
-
-    def _create_cube_marker(
-        self,
-        cx: float, cy: float, cz: float,
-        size: float,
-        rgb: tuple,
-    ) -> list:
-        """Create a flat 2D square marker for an ostium seed (aligned to slice plane)."""
-        from vtkmodules.vtkFiltersSources import vtkPlaneSource
-        plane = vtkPlaneSource()
-        hs = size / 2.0  # half-size
-        # Align to slice orientation
         if self._orientation == "axial":
-            plane.SetOrigin(cx - hs, cy - hs, cz)
-            plane.SetPoint1(cx + hs, cy - hs, cz)
-            plane.SetPoint2(cx - hs, cy + hs, cz)
+            # screen_x = (wx - fx) * scale + w/2  =>  wx = (qt_x - w/2) / scale + fx
+            # screen_y = (wy - fy) * scale + h/2  =>  wy = (qt_y - h/2) / scale + fy
+            world_x = (qt_x - w / 2.0) / scale + fx
+            world_y = (qt_y - h / 2.0) / scale + fy
+            vox_x = world_x / sx if sx > 0 else 0.0
+            vox_y = world_y / sy if sy > 0 else 0.0
+            vox_z = float(self._current_slice)
+            return [vox_z, vox_y, vox_x]
+
         elif self._orientation == "coronal":
-            plane.SetOrigin(cx - hs, cy, cz - hs)
-            plane.SetPoint1(cx + hs, cy, cz - hs)
-            plane.SetPoint2(cx - hs, cy, cz + hs)
-        else:  # sagittal
-            plane.SetOrigin(cx, cy - hs, cz - hs)
-            plane.SetPoint1(cx, cy + hs, cz - hs)
-            plane.SetPoint2(cx, cy - hs, cz + hs)
-        plane.Update()
+            # screen_x = (wx - fx) * scale + w/2
+            # screen_y = (fz - wz) * scale + h/2  =>  wz = fz - (qt_y - h/2) / scale
+            world_x = (qt_x - w / 2.0) / scale + fx
+            world_z = fz - (qt_y - h / 2.0) / scale
+            vox_x = world_x / sx if sx > 0 else 0.0
+            vox_y = float(self._current_slice)
+            vox_z = world_z / sz if sz > 0 else 0.0
+            return [vox_z, vox_y, vox_x]
 
-        actors = []
-        # White outline
-        m1 = vtkPolyDataMapper()
-        m1.SetInputData(plane.GetOutput())
-        a1 = vtkActor()
-        a1.SetMapper(m1)
-        a1.GetProperty().SetColor(1.0, 1.0, 1.0)
-        a1.GetProperty().SetRepresentationToWireframe()
-        a1.GetProperty().SetLineWidth(2.0)
-        a1.GetProperty().SetOpacity(0.8)
-        self._vtk_renderer.AddActor(a1)
-        self._overlay_actors.append(a1)
-        actors.append(a1)
+        elif self._orientation == "sagittal":
+            # screen_x = (wy - fy) * scale + w/2
+            # screen_y = (fz - wz) * scale + h/2
+            world_y = (qt_x - w / 2.0) / scale + fy
+            world_z = fz - (qt_y - h / 2.0) / scale
+            vox_x = float(self._current_slice)
+            vox_y = world_y / sy if sy > 0 else 0.0
+            vox_z = world_z / sz if sz > 0 else 0.0
+            return [vox_z, vox_y, vox_x]
 
-        # Colored fill
-        m2 = vtkPolyDataMapper()
-        m2.SetInputData(plane.GetOutput())
-        a2 = vtkActor()
-        a2.SetMapper(m2)
-        a2.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-        a2.GetProperty().SetRepresentationToSurface()
-        a2.GetProperty().SetOpacity(0.85)
-        self._vtk_renderer.AddActor(a2)
-        self._overlay_actors.append(a2)
-        actors.append(a2)
+        return None
 
-        return actors
-
-    def update_single_seed_position(
-        self,
-        vessel: str,
-        seed_type: str,
-        index: int,
-        world_pos: tuple,
-    ) -> None:
-        """Reposition one seed's VTK actors without rebuilding all overlays.
-
-        Computes the delta from old position and translates each actor.
-        """
-        for info in self._seed_actor_info:
-            if (
-                info["vessel"] == vessel
-                and info["type"] == seed_type
-                and info["index"] == index
-            ):
-                old_x, old_y, old_z = info["world_pos"]
-                new_x, new_y, new_z = world_pos
-                dx = new_x - old_x
-                dy = new_y - old_y
-                dz = new_z - old_z
-
-                for actor in info["actors"]:
-                    pos = actor.GetPosition()
-                    actor.SetPosition(pos[0] + dx, pos[1] + dy, pos[2] + dz)
-
-                info["world_pos"] = (new_x, new_y, new_z)
-                self._update_seed_visibility()
-                self._render()
-                return
-
-    def set_selection_highlight(
-        self, vessel: str, seed_type: str, index: int
-    ) -> None:
-        """Add a yellow ring/border around the selected seed's actors."""
-        self.clear_selection_highlight()
-
-        for info in self._seed_actor_info:
-            if (
-                info["vessel"] == vessel
-                and info["type"] == seed_type
-                and info["index"] == index
-            ):
-                cx, cy, cz = info["world_pos"]
-                highlight_radius = 3.0  # slightly larger than seed markers
-
-                # Build highlight ring in 3 planes
-                appender = vtkAppendPolyData()
-                for normal in [(0, 0, 1), (0, 1, 0), (1, 0, 0)]:
-                    ring = vtkRegularPolygonSource()
-                    ring.SetNumberOfSides(32)
-                    ring.SetRadius(highlight_radius)
-                    ring.SetCenter(cx, cy, cz)
-                    ring.SetNormal(*normal)
-                    ring.GeneratePolygonOff()  # ring only, no fill
-                    ring.Update()
-                    appender.AddInputData(ring.GetOutput())
-                appender.Update()
-
-                mapper = vtkPolyDataMapper()
-                mapper.SetInputData(appender.GetOutput())
-                actor = vtkActor()
-                actor.SetMapper(mapper)
-                actor.GetProperty().SetColor(1.0, 1.0, 0.0)  # yellow
-                actor.GetProperty().SetLineWidth(2.5)
-                actor.GetProperty().SetOpacity(0.9)
-                self._vtk_renderer.AddActor(actor)
-                self._highlight_actors.append(actor)
-                self._render()
-                return
-
-    def clear_selection_highlight(self) -> None:
-        """Remove yellow selection highlight actors."""
-        for actor in self._highlight_actors:
-            self._vtk_renderer.RemoveActor(actor)
-        self._highlight_actors.clear()
+    def _update_overlay_params(self) -> None:
+        """Push current view parameters to the QPainter overlay."""
+        cam = self._vtk_renderer.GetActiveCamera()
+        self._overlay.set_view_params(
+            orientation=self._orientation,
+            current_slice=self._current_slice,
+            spacing=self._spacing,
+            volume_shape=self._shape,
+            parallel_scale=cam.GetParallelScale(),
+            focal_point=cam.GetFocalPoint(),
+        )
+        self._overlay.update()
 
     # ── Camera ──────────────────────────────────────────────────────
 
@@ -1004,6 +826,7 @@ class VTKSliceView(QWidget):
         self._fit_scale = fit_scale  # minimum zoom (can't zoom out past this)
 
         self._vtk_renderer.ResetCameraClippingRange()
+        self._update_overlay_params()
         self._render()
 
     # ── Overlay rendering ─────────────────────────────────────────
@@ -1013,7 +836,6 @@ class VTKSliceView(QWidget):
         for actor in self._overlay_actors:
             self._vtk_renderer.RemoveActor(actor)
         self._overlay_actors.clear()
-        self._seed_actor_info.clear()
         for actor in self._crosshair_actors:
             self._vtk_renderer.RemoveActor(actor)
         self._crosshair_actors.clear()
@@ -1022,184 +844,7 @@ class VTKSliceView(QWidget):
             self._vtk_renderer.RemoveViewProp(self._voi_slice)
             self._voi_slice = None
             self._voi_mapper = None
-        self._render()
-
-    def set_seed_overlay(self, seeds_dict: dict, spacing: list) -> None:
-        """Show seed/ostium points as filled sphere dots.
-
-        Each seed renders as a small solid sphere visible from any angle.
-        Two-layer rendering: white wireframe outline underneath,
-        vessel-colored solid fill on top.
-        """
-        sx, sy, sz = spacing[2], spacing[1], spacing[0]
-
-        for vessel, ijk in seeds_dict.items():
-            z, y, x = float(ijk[0]), float(ijk[1]), float(ijk[2])
-            cx, cy, cz = x * sx, y * sy, z * sz
-            rgb = _VESSEL_COLORS_RGB.get(vessel, (232, 83, 58))
-
-            seed_actors = self._create_sphere_marker(cx, cy, cz, 1.5, rgb)
-
-            self._seed_actor_info.append({
-                "actors": seed_actors,
-                "world_pos": (cx, cy, cz),
-            })
-
-        self._update_seed_visibility()
-        self._render()
-
-    def set_centerline_overlay(self, centerlines_dict: dict, spacing: list) -> None:
-        """Show vessel centerlines as colored lines with white outline.
-
-        Centerlines are clipped to a ±2mm slab around the current slice
-        so they only appear where the vessel is visible.
-        """
-        from vtkmodules.vtkCommonDataModel import vtkPlane
-
-        sx, sy, sz = spacing[2], spacing[1], spacing[0]
-        slab_mm = 2.0  # show centerline within ±2mm of current slice
-
-        # Remove old centerline clipping planes
-        self._centerline_mappers = []
-
-        for vessel, cl_ijk in centerlines_dict.items():
-            if cl_ijk is None or len(cl_ijk) < 2:
-                continue
-
-            rgb = _VESSEL_COLORS_RGB.get(vessel, (232, 83, 58))
-
-            points = vtkPoints()
-            for pt in cl_ijk:
-                z, y, x = float(pt[0]), float(pt[1]), float(pt[2])
-                points.InsertNextPoint(x * sx, y * sy, z * sz)
-
-            lines = vtkCellArray()
-            lines.InsertNextCell(len(cl_ijk))
-            for i in range(len(cl_ijk)):
-                lines.InsertCellPoint(i)
-
-            pd = vtkPolyData()
-            pd.SetPoints(points)
-            pd.SetLines(lines)
-
-            # Clipping planes: two parallel planes forming a slab
-            plane1 = vtkPlane()
-            plane2 = vtkPlane()
-            if self._orientation == "axial":
-                plane1.SetNormal(0, 0, 1)
-                plane2.SetNormal(0, 0, -1)
-            elif self._orientation == "coronal":
-                plane1.SetNormal(0, 1, 0)
-                plane2.SetNormal(0, -1, 0)
-            else:  # sagittal
-                plane1.SetNormal(1, 0, 0)
-                plane2.SetNormal(-1, 0, 0)
-
-            # White outline (wider, behind)
-            mapper_bg = vtkPolyDataMapper()
-            mapper_bg.SetInputData(pd)
-            mapper_bg.AddClippingPlane(plane1)
-            mapper_bg.AddClippingPlane(plane2)
-            actor_bg = vtkActor()
-            actor_bg.SetMapper(mapper_bg)
-            actor_bg.GetProperty().SetColor(1.0, 1.0, 1.0)
-            actor_bg.GetProperty().SetLineWidth(4.0)
-            actor_bg.GetProperty().SetOpacity(0.5)
-            self._vtk_renderer.AddActor(actor_bg)
-            self._overlay_actors.append(actor_bg)
-
-            # Vessel-colored line (on top)
-            mapper_fg = vtkPolyDataMapper()
-            mapper_fg.SetInputData(pd)
-            mapper_fg.AddClippingPlane(plane1)
-            mapper_fg.AddClippingPlane(plane2)
-            actor_fg = vtkActor()
-            actor_fg.SetMapper(mapper_fg)
-            actor_fg.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-            actor_fg.GetProperty().SetLineWidth(2.5)
-            actor_fg.GetProperty().SetOpacity(0.9)
-            self._vtk_renderer.AddActor(actor_fg)
-            self._overlay_actors.append(actor_fg)
-
-            self._centerline_mappers.extend([
-                (mapper_bg, plane1, plane2),
-                (mapper_fg, plane1, plane2),
-            ])
-
-        self._update_centerline_clip()
-        self._render()
-
-    def _update_centerline_clip(self) -> None:
-        """Update centerline clipping planes to match the current slice."""
-        if not hasattr(self, "_centerline_mappers") or not self._centerline_mappers:
-            return
-        slab_mm = 2.0
-        if self._orientation == "axial":
-            pos_mm = self._current_slice * self._spacing[0]
-        elif self._orientation == "coronal":
-            pos_mm = self._current_slice * self._spacing[1]
-        else:
-            pos_mm = self._current_slice * self._spacing[2]
-
-        for _mapper, p1, p2 in self._centerline_mappers:
-            if self._orientation == "axial":
-                p1.SetOrigin(0, 0, pos_mm - slab_mm)
-                p2.SetOrigin(0, 0, pos_mm + slab_mm)
-            elif self._orientation == "coronal":
-                p1.SetOrigin(0, pos_mm - slab_mm, 0)
-                p2.SetOrigin(0, pos_mm + slab_mm, 0)
-            else:
-                p1.SetOrigin(pos_mm - slab_mm, 0, 0)
-                p2.SetOrigin(pos_mm + slab_mm, 0, 0)
-
-    def set_contour_overlay(self, contour_results_dict: dict) -> None:
-        """Show vessel wall contours in white (Horos style).
-
-        Horos convention: vessel lumen boundary in white (lw 2.0, alpha 0.85),
-        shown every ~2mm along the vessel for clean visualization.
-        """
-        for vessel, cr in contour_results_dict.items():
-            points = vtkPoints()
-            lines = vtkCellArray()
-            pt_offset = 0
-
-            # Show every ~2mm along vessel (use arclengths if available)
-            step = max(1, len(cr.contours) // 20)
-            for i in range(0, len(cr.contours), step):
-                contour = cr.contours[i]
-                n = len(contour)
-                if n < 3:
-                    continue
-
-                for pt in contour:
-                    z, y, x = float(pt[0]), float(pt[1]), float(pt[2])
-                    points.InsertNextPoint(x, y, z)  # already in mm
-
-                # Closed polyline
-                lines.InsertNextCell(n + 1)
-                for j in range(n):
-                    lines.InsertCellPoint(pt_offset + j)
-                lines.InsertCellPoint(pt_offset)
-                pt_offset += n
-
-            if points.GetNumberOfPoints() == 0:
-                continue
-
-            pd = vtkPolyData()
-            pd.SetPoints(points)
-            pd.SetLines(lines)
-
-            # White vessel wall contour (Horos style)
-            mapper = vtkPolyDataMapper()
-            mapper.SetInputData(pd)
-            actor = vtkActor()
-            actor.SetMapper(mapper)
-            actor.GetProperty().SetColor(1.0, 1.0, 1.0)
-            actor.GetProperty().SetLineWidth(1.8)
-            actor.GetProperty().SetOpacity(0.85)
-            self._vtk_renderer.AddActor(actor)
-            self._overlay_actors.append(actor)
-
+        self._overlay.update()
         self._render()
 
     def set_voi_overlay(self, voi_masks_dict: dict, spacing: list) -> None:
