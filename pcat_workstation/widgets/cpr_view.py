@@ -734,6 +734,7 @@ class CPRView(QWidget):
 
         # Straightened / Curved toggle
         self._stretched_mode = False
+        self._show_fai_overlay = False  # only after pipeline VOI stage
         self._straightened_btn = QRadioButton("Straightened")
         self._straightened_btn.setChecked(True)
         self._straightened_btn.setStyleSheet("color: #e5e5e7; font-size: 10pt;")
@@ -793,6 +794,15 @@ class CPRView(QWidget):
         return self._vessels[vessel]
 
     # ── Public API (original, preserved) ─────────────────────────────
+
+    def enable_fai_overlay(self, enabled: bool = True) -> None:
+        """Enable/disable the yellow→red FAI overlay on the CPR image.
+
+        Should be enabled after the pipeline computes the PCAT VOI,
+        not during seed editing.
+        """
+        self._show_fai_overlay = enabled
+        self._refresh_cpr()
 
     def set_cpr_data(self, vessel: str, cpr_image: np.ndarray, row_extent_mm: float = 25.0) -> None:
         """Store a CPR image (float32 HU, rows x cols) for a vessel."""
@@ -1026,25 +1036,27 @@ class CPRView(QWidget):
         else:
             img_display = vd.cpr_image.T
 
-        # Render: grayscale background + FAI overlay (yellow→red for -190...-30 HU)
+        # Render grayscale
         gray = _apply_wl(img_display, self._window, self._level)
-        rgb = np.stack([gray, gray, gray], axis=-1)  # (H, W, 3)
 
-        # FAI overlay: yellow (-190 HU) → red (-30 HU)
-        fai_mask = (img_display >= -190.0) & (img_display <= -30.0) & ~np.isnan(img_display)
-        if fai_mask.any():
-            t = np.clip((img_display[fai_mask] - (-190.0)) / (160.0), 0, 1)  # 0=yellow, 1=red
-            r = np.full_like(t, 255)
-            g = ((1.0 - t) * 220).astype(np.uint8)  # 220→0 (yellow→red)
-            b = np.zeros_like(t, dtype=np.uint8)
-            alpha = 0.6
-            rgb[fai_mask, 0] = np.clip(rgb[fai_mask, 0] * (1 - alpha) + r * alpha, 0, 255).astype(np.uint8)
-            rgb[fai_mask, 1] = np.clip(rgb[fai_mask, 1] * (1 - alpha) + g * alpha, 0, 255).astype(np.uint8)
-            rgb[fai_mask, 2] = np.clip(rgb[fai_mask, 2] * (1 - alpha) + b * alpha, 0, 255).astype(np.uint8)
-
-        h, w = gray.shape
-        rgb_c = np.ascontiguousarray(rgb)
-        qimg = QImage(rgb_c.data, w, h, w * 3, QImage.Format_RGB888).copy()
+        # FAI overlay only after pipeline computes VOI (not during seed editing)
+        if self._show_fai_overlay:
+            rgb = np.stack([gray, gray, gray], axis=-1)  # (H, W, 3)
+            fai_mask = (img_display >= -190.0) & (img_display <= -30.0) & ~np.isnan(img_display)
+            if fai_mask.any():
+                t = np.clip((img_display[fai_mask] - (-190.0)) / 160.0, 0, 1)
+                r = np.full_like(t, 255)
+                g = ((1.0 - t) * 220).astype(np.uint8)
+                b = np.zeros_like(t, dtype=np.uint8)
+                alpha = 0.6
+                rgb[fai_mask, 0] = np.clip(rgb[fai_mask, 0] * (1 - alpha) + r * alpha, 0, 255).astype(np.uint8)
+                rgb[fai_mask, 1] = np.clip(rgb[fai_mask, 1] * (1 - alpha) + g * alpha, 0, 255).astype(np.uint8)
+                rgb[fai_mask, 2] = np.clip(rgb[fai_mask, 2] * (1 - alpha) + b * alpha, 0, 255).astype(np.uint8)
+            h, w = gray.shape
+            rgb_c = np.ascontiguousarray(rgb)
+            qimg = QImage(rgb_c.data, w, h, w * 3, QImage.Format_RGB888).copy()
+        else:
+            qimg = _gray_to_qimage(gray)
         pm = QPixmap.fromImage(qimg)
 
         n_pos = vd.cpr_image.shape[0]

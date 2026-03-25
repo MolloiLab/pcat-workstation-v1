@@ -289,6 +289,7 @@ class MainWindow(QMainWindow):
         # Clear stale overlays/state from previous patient
         self._mpr_panel.clear_overlays()
         self._mpr_panel.clear_cpr()
+        self._mpr_panel._cpr_view.enable_fai_overlay(False)
         self._mpr_panel.set_edit_mode(False)
         self._edit_state = None
         self._edit_controller = None
@@ -671,6 +672,8 @@ class MainWindow(QMainWindow):
         meta = self._session.get_meta() if self._session else None
         if meta:
             self._mpr_panel.set_voi_overlay(voi_masks_dict, meta["spacing_mm"])
+        # Enable FAI overlay on CPR now that VOI is computed
+        self._mpr_panel._cpr_view.enable_fai_overlay(True)
         # VOI masks are large (~75MB); skip saving — centerlines+CPR suffice.
 
     @Slot(str, object, float)
