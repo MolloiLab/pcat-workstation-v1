@@ -34,6 +34,7 @@ class SeedEditController(QObject):
     """
 
     request_pipeline_rerun = Signal()  # emitted when user wants to re-run pipeline
+    save_requested = Signal()  # Ctrl+S — save seeds to session
 
     # ------------------------------------------------------------------
     # Construction
@@ -155,10 +156,21 @@ class SeedEditController(QObject):
             voxel.tolist(),
         )
 
-        # Recompute spline during drag (centerline follows seed).
-        # emit=False: don't trigger CPR regen on every drag pixel.
+        # Move the VTK actor directly (fast — no full rebuild)
+        for v in self._views:
+            v.update_single_seed_position(
+                self._drag_vessel,
+                self._drag_type,
+                self._drag_index,
+                world,
+            )
+
+        # Recompute spline and update centerline overlay (no CPR regen)
         self._state.recompute_centerline(self._drag_vessel, emit=False)
-        self.refresh_all_views()
+        cl_dict = {v: c for v, c in self._state.centerlines.items() if c is not None}
+        if cl_dict:
+            for view in self._views:
+                view.set_centerline_overlay(cl_dict, self._spacing)
 
     def on_left_release(
         self, view: VTKSliceView, qt_x: int, qt_y: int
@@ -215,6 +227,9 @@ class SeedEditController(QObject):
 
         elif key == Qt.Key_Y and ctrl:
             self._state.redo()
+
+        elif key == Qt.Key_S and ctrl:
+            self.save_requested.emit()
 
         elif key == Qt.Key_Left:
             self._cycle_seed(-1)

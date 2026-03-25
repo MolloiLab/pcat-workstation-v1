@@ -263,13 +263,22 @@ class SeedEditState(QObject):
         self.seeds_changed.emit(vessel)
 
     def delete_selected(self) -> None:
-        """Delete the currently selected waypoint (ostium cannot be deleted)."""
-        if not self._selected_vessel or self._selected_type != "waypoint":
-            return
-        if self.selected_idx is None or self.selected_idx < 0:
+        """Delete the currently selected seed (ostium or waypoint)."""
+        if not self._selected_vessel or not self._selected_type:
             return
 
         vessel = self._selected_vessel
+
+        if self._selected_type == "ostium":
+            self.push_history()
+            self.seeds[vessel]["ostium"] = None
+            self.clear_selection()
+            self.recompute_centerline(vessel)
+            self.seeds_changed.emit(vessel)
+            return
+
+        if self.selected_idx is None or self.selected_idx < 0:
+            return
         wps = self.seeds[vessel]["waypoints"]
         if self.selected_idx >= len(wps):
             return

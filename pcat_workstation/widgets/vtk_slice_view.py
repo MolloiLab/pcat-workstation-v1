@@ -718,7 +718,7 @@ class VTKSliceView(QWidget):
                 ijk = entry["ostium"]
                 z, y, x = float(ijk[0]), float(ijk[1]), float(ijk[2])
                 cx, cy, cz = x * sx, y * sy, z * sz
-                actors = self._create_cube_marker(cx, cy, cz, 3.0, rgb)
+                actors = self._create_cube_marker(cx, cy, cz, 5.0, rgb)
                 self._seed_actor_info.append({
                     "actors": actors,
                     "world_pos": (cx, cy, cz),
@@ -731,7 +731,7 @@ class VTKSliceView(QWidget):
             for idx, wp in enumerate(entry["waypoints"]):
                 z, y, x = float(wp[0]), float(wp[1]), float(wp[2])
                 cx, cy, cz = x * sx, y * sy, z * sz
-                actors = self._create_sphere_marker(cx, cy, cz, 1.5, rgb)
+                actors = self._create_sphere_marker(cx, cy, cz, 2.5, rgb)
                 self._seed_actor_info.append({
                     "actors": actors,
                     "world_pos": (cx, cy, cz),
@@ -1025,7 +1025,7 @@ class VTKSliceView(QWidget):
             cx, cy, cz = x * sx, y * sy, z * sz
             rgb = _VESSEL_COLORS_RGB.get(vessel, (232, 83, 58))
 
-            seed_actors = self._create_sphere_marker(cx, cy, cz, 1.5, rgb)
+            seed_actors = self._create_sphere_marker(cx, cy, cz, 2.5, rgb)
 
             self._seed_actor_info.append({
                 "actors": seed_actors,
@@ -1090,8 +1090,8 @@ class VTKSliceView(QWidget):
             actor_bg = vtkActor()
             actor_bg.SetMapper(mapper_bg)
             actor_bg.GetProperty().SetColor(1.0, 1.0, 1.0)
-            actor_bg.GetProperty().SetLineWidth(3.0)
-            actor_bg.GetProperty().SetOpacity(0.4)
+            actor_bg.GetProperty().SetLineWidth(4.0)
+            actor_bg.GetProperty().SetOpacity(0.5)
             self._vtk_renderer.AddActor(actor_bg)
             self._overlay_actors.append(actor_bg)
 
@@ -1103,8 +1103,8 @@ class VTKSliceView(QWidget):
             actor_fg = vtkActor()
             actor_fg.SetMapper(mapper_fg)
             actor_fg.GetProperty().SetColor(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
-            actor_fg.GetProperty().SetLineWidth(1.5)
-            actor_fg.GetProperty().SetOpacity(0.85)
+            actor_fg.GetProperty().SetLineWidth(2.5)
+            actor_fg.GetProperty().SetOpacity(0.9)
             self._vtk_renderer.AddActor(actor_fg)
             self._overlay_actors.append(actor_fg)
 

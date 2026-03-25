@@ -915,6 +915,7 @@ class MainWindow(QMainWindow):
             spacing=spacing,
         )
         self._edit_controller.request_pipeline_rerun.connect(self._on_edit_rerun)
+        self._edit_controller.save_requested.connect(self._on_save_seeds)
 
         self._mpr_panel.set_edit_controller(self._edit_controller)
         self._mpr_panel.set_edit_mode(True)
@@ -938,6 +939,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Seeds loaded \u2014 click to select, drag to move")
 
     @Slot()
+    @Slot()
+    def _on_save_seeds(self) -> None:
+        """Save seeds to session (Ctrl+S)."""
+        if self._edit_state is not None and self._session is not None:
+            self._edit_state.save_to_session(self._session)
+            self.statusBar().showMessage("Seeds saved")
+
     def _on_edit_rerun(self) -> None:
         """Re-run pipeline with updated seeds from edit mode."""
         if self._edit_state is None or self._session is None:
