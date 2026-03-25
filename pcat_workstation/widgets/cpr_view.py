@@ -106,7 +106,6 @@ class _VesselData:
     """Holds all data for one vessel."""
     __slots__ = (
         "cpr_image",
-        "contour_result",
         "volume",
         "spacing",
         "row_extent_mm",
@@ -120,7 +119,6 @@ class _VesselData:
 
     def __init__(self) -> None:
         self.cpr_image: Optional[np.ndarray] = None
-        self.contour_result = None  # ContourResult or None
         self.volume: Optional[np.ndarray] = None
         self.spacing: Optional[np.ndarray] = None
         self.row_extent_mm: Optional[float] = None
@@ -223,10 +221,6 @@ class _CPRPanel(QWidget):
         frac = max(0.0, min(1.0, frac))
         return int(round(frac * (self._n_positions - 1)))
 
-    # Keep legacy names as aliases for any external callers
-    _y_for_index = _x_for_index
-    _index_for_y = _index_for_x
-
     # ── paint ────────────────────────────────────────────────────────
 
     def paintEvent(self, event) -> None:
@@ -254,12 +248,6 @@ class _CPRPanel(QWidget):
 
         # Arc-length tick marks on top edge
         self._draw_arc_ticks(p, rect)
-
-        # Vessel wall boundaries (green solid)
-        self._draw_wall_boundaries(p, rect)
-
-        # PCAT boundary (green dashed)
-        self._draw_pcat_boundary(p, rect)
 
         # Needle lines (vertical): A (yellow), B (cyan, main), C (yellow)
         if self._n_positions > 0:
@@ -316,75 +304,6 @@ class _CPRPanel(QWidget):
         for frac, label in [(0.0, f"-{int(half_w_mm)}"), (0.5, "0"), (1.0, f"+{int(half_w_mm)}")]:
             y = rect.top() + frac * rect.height()
             p.drawText(QPointF(rect.left() - 28, y + 4), label)
-
-    def _draw_wall_boundaries(self, p: QPainter, rect: QRectF) -> None:
-        """Draw vessel wall boundaries as green lines along the CPR."""
-        vdata = self._root._current_vdata()
-        if vdata is None or vdata.contour_result is None:
-            return
-
-        cr = vdata.contour_result
-        r_eq = cr.r_eq
-        if r_eq is None or len(r_eq) == 0:
-            return
-
-        cpr_img = vdata.cpr_image
-        if cpr_img is None:
-            return
-
-        n_pos = len(r_eq)
-        cpr_w = cpr_img.shape[1]  # pixel width of the CPR image
-
-        pen = QPen(QColor("#00ff00"), 1.2)
-        p.setPen(pen)
-
-        # Wall boundaries: center +/- r_eq mapped to pixel column -> widget x
-        # half_width_mm is the physical half-width of the CPR lateral axis (row_extent_mm).
-        half_width_mm = vdata.row_extent_mm if vdata.row_extent_mm is not None else max(cpr_w * 0.15, 10.0)
-
-        for i in range(n_pos - 1):
-            y0 = self._y_for_index(i)
-            y1 = self._y_for_index(i + 1)
-            for sign in (-1.0, 1.0):
-                frac0 = 0.5 + sign * r_eq[i] / (2.0 * half_width_mm)
-                frac1 = 0.5 + sign * r_eq[i + 1] / (2.0 * half_width_mm)
-                x0 = rect.left() + frac0 * rect.width()
-                x1 = rect.left() + frac1 * rect.width()
-                p.drawLine(QPointF(x0, y0), QPointF(x1, y1))
-
-    def _draw_pcat_boundary(self, p: QPainter, rect: QRectF) -> None:
-        """Draw PCAT boundary (3x r_eq) as green dashed lines."""
-        vdata = self._root._current_vdata()
-        if vdata is None or vdata.contour_result is None:
-            return
-
-        cr = vdata.contour_result
-        r_eq = cr.r_eq
-        if r_eq is None or len(r_eq) == 0:
-            return
-
-        cpr_img = vdata.cpr_image
-        if cpr_img is None:
-            return
-
-        n_pos = len(r_eq)
-        cpr_w = cpr_img.shape[1]
-        half_width_mm = vdata.row_extent_mm if vdata.row_extent_mm is not None else max(cpr_w * 0.15, 10.0)
-
-        pen = QPen(QColor("#00cc00"), 1.0, Qt.DashLine)
-        p.setPen(pen)
-
-        pcat_r = r_eq * 3.0
-
-        for i in range(n_pos - 1):
-            y0 = self._y_for_index(i)
-            y1 = self._y_for_index(i + 1)
-            for sign in (-1.0, 1.0):
-                frac0 = 0.5 + sign * pcat_r[i] / (2.0 * half_width_mm)
-                frac1 = 0.5 + sign * pcat_r[i + 1] / (2.0 * half_width_mm)
-                x0 = rect.left() + frac0 * rect.width()
-                x1 = rect.left() + frac1 * rect.width()
-                p.drawLine(QPointF(x0, y0), QPointF(x1, y1))
 
     # ── mouse / keyboard ─────────────────────────────────────────────
 
@@ -873,39 +792,6 @@ class CPRView(QWidget):
         for panel in self._cs_panels:
             panel.clear()
 
-    # ── Public API (new) ─────────────────────────────────────────────
-
-    def set_contour_data(
-        self,
-        vessel: str,
-        contour_result,
-        volume: np.ndarray,
-        spacing,
-    ) -> None:
-        """Store ContourResult and volume reference for cross-section sampling.
-
-        Parameters
-        ----------
-        vessel : str
-            Vessel name (e.g. "LAD", "LCx", "RCA").
-        contour_result : ContourResult
-            Has: positions_mm (N,3), N_frame (N,3), B_frame (N,3),
-            contours, r_eq (N,), arclengths (N,).
-        volume : np.ndarray
-            3D CT volume (float32 HU).
-        spacing : array-like
-            Voxel spacing [z, y, x] in mm.
-        """
-        vd = self._get_or_create_vdata(vessel)
-        vd.contour_result = contour_result
-        vd.volume = volume
-        vd.spacing = np.asarray(spacing, dtype=np.float64)
-        # Invalidate cache
-        self._cs_cache = {k: v for k, v in self._cs_cache.items() if k[0] != vessel}
-        if vessel == self._current_vessel:
-            self._refresh_cpr()
-            self._refresh_cs()
-
     # ── Needle movement ──────────────────────────────────────────────
 
     def _map_needle_to_frame_idx(self, needle_idx: int, vd: _VesselData) -> int:
@@ -941,9 +827,6 @@ class CPRView(QWidget):
             fi = self._map_needle_to_frame_idx(idx, vd)
             pos = vd.cpr_positions_mm[fi]
             self.needle_moved.emit(float(pos[2]), float(pos[1]), float(pos[0]))
-        elif vd.contour_result is not None and idx < len(vd.contour_result.positions_mm):
-            pos = vd.contour_result.positions_mm[idx]
-            self.needle_moved.emit(float(pos[2]), float(pos[1]), float(pos[0]))
 
         # Debounced cross-section update
         QTimer.singleShot(30, self._refresh_cs)
@@ -955,8 +838,6 @@ class CPRView(QWidget):
             return 0
         if vd.cpr_image is not None:
             return vd.cpr_image.shape[0]
-        if vd.contour_result is not None:
-            return len(vd.contour_result.positions_mm)
         return 0
 
     # ── W/L drag ─────────────────────────────────────────────────────
@@ -1150,29 +1031,19 @@ class CPRView(QWidget):
         idx_a = max(0, idx_b - interval)
         idx_c = min(n_pos - 1, idx_b + interval)
 
-        cr = vd.contour_result
-
         # Get arc-length at B for distance calculations
         arc_b = 0.0
         if vd.cpr_arclengths is not None:
             fi_b = self._map_needle_to_frame_idx(idx_b, vd)
             arc_b = float(vd.cpr_arclengths[fi_b])
-        elif cr is not None and cr.arclengths is not None and idx_b < len(cr.arclengths):
-            arc_b = float(cr.arclengths[idx_b])
 
         for panel, idx in zip(self._cs_panels, [idx_a, idx_b, idx_c]):
             r_eq_mm = 0.0
             arc_mm = 0.0
 
-            # Prefer CPR frame arclengths
             if vd.cpr_arclengths is not None:
                 fi = self._map_needle_to_frame_idx(idx, vd)
                 arc_mm = float(vd.cpr_arclengths[fi])
-            elif cr is not None and cr.arclengths is not None and idx < len(cr.arclengths):
-                arc_mm = float(cr.arclengths[idx])
-
-            if cr is not None and cr.r_eq is not None and idx < len(cr.r_eq):
-                r_eq_mm = float(cr.r_eq[idx])
 
             dist_from_b_mm = arc_mm - arc_b
 
@@ -1188,29 +1059,18 @@ class CPRView(QWidget):
         if vd is None or vd.volume is None or vd.spacing is None:
             return None
 
-        # Need either CPR frame or contour extraction frame
-        has_cpr_frame = vd.cpr_N_frame is not None
-        has_contour = vd.contour_result is not None
-        if not has_cpr_frame and not has_contour:
+        # Need CPR frame for cross-section sampling
+        if vd.cpr_N_frame is None:
             return None
 
         cache_key = (self._current_vessel, idx)
         if cache_key in self._cs_cache:
             return self._cs_cache[cache_key]
 
-        # Prefer CPR frame (matches CPR image orientation)
-        if has_cpr_frame:
-            fi = self._map_needle_to_frame_idx(idx, vd)
-            N_vec = vd.cpr_N_frame[fi]
-            B_vec = vd.cpr_B_frame[fi]
-            center = vd.cpr_positions_mm[fi]
-        else:
-            cr = vd.contour_result
-            if idx >= len(cr.positions_mm):
-                return None
-            N_vec = cr.N_frame[idx]
-            B_vec = cr.B_frame[idx]
-            center = cr.positions_mm[idx]
+        fi = self._map_needle_to_frame_idx(idx, vd)
+        N_vec = vd.cpr_N_frame[fi]
+        B_vec = vd.cpr_B_frame[fi]
+        center = vd.cpr_positions_mm[fi]
 
         cs_img = _sample_cross_section(
             volume=vd.volume,

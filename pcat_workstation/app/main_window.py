@@ -199,6 +199,7 @@ class MainWindow(QMainWindow):
 
         # Toolbar — "Run All" does full pipeline
         self._toolbar.run_clicked.connect(self._on_run_pipeline)
+        self._toolbar.run_pipeline_clicked.connect(self._on_run_pipeline)
         self._toolbar.vessel_changed.connect(self._on_vessel_changed)
         self._toolbar.wl_preset_changed.connect(self._on_wl_changed)
 
@@ -446,6 +447,17 @@ class MainWindow(QMainWindow):
         self._toolbar.set_run_enabled(True)
 
         self.statusBar().showMessage(f"Resumed: {self._session.patient_id}")
+
+    def _update_run_pipeline_enabled(self, _vessel: str = "") -> None:
+        """Enable Run Pipeline button if any vessel has enough seeds."""
+        if self._seed_editor is None:
+            self._toolbar.set_run_pipeline_enabled(False)
+            return
+        has_seeds = any(
+            self._seed_editor.has_enough_seeds(v)
+            for v in self._seed_editor.seeds
+        )
+        self._toolbar.set_run_pipeline_enabled(has_seeds)
 
     @Slot()
     def _on_run_pipeline(self) -> None:
@@ -949,6 +961,10 @@ class MainWindow(QMainWindow):
 
         # Save: Ctrl+S
         self._seed_editor.save_requested.connect(self._on_save_seeds)
+
+        # Enable/disable Run Pipeline button based on seed state
+        self._seed_editor.seeds_changed.connect(self._update_run_pipeline_enabled)
+        self._update_run_pipeline_enabled()
 
         self.statusBar().showMessage(
             "Click to place ostium \u2014 Enter: add waypoint \u2014 \u2190\u2192: select \u2014 Backspace: delete"

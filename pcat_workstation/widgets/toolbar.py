@@ -25,6 +25,7 @@ class MainToolBar(QToolBar):
     vessel_changed = Signal(str)       # "LAD", "LCx", "RCA"
     wl_preset_changed = Signal(float, float)  # (window, level)
     run_clicked = Signal()
+    run_pipeline_clicked = Signal()
     export_clicked = Signal()
 
     def __init__(self, parent=None):
@@ -95,6 +96,20 @@ class MainToolBar(QToolBar):
         spacer.setStyleSheet("background: transparent;")
         self.addWidget(spacer)
 
+        # --- Run Pipeline button (primary action) ---
+        self._run_pipeline_btn = QPushButton("\u25b6 Run Pipeline")
+        self._run_pipeline_btn.setFixedHeight(36)
+        self._run_pipeline_btn.setCursor(Qt.PointingHandCursor)
+        self._run_pipeline_btn.setEnabled(False)
+        self._run_pipeline_btn.setStyleSheet("""
+            QPushButton { background-color: #0a84ff; color: white; border: none;
+                          border-radius: 4px; font-size: 13pt; font-weight: bold; padding: 0 16px; }
+            QPushButton:hover { background-color: #0070e0; }
+            QPushButton:disabled { background-color: #3a3a3c; color: #636366; }
+        """)
+        self._run_pipeline_btn.clicked.connect(self.run_pipeline_clicked)
+        self.addWidget(self._run_pipeline_btn)
+
         # --- Run All button (full pipeline re-run) ---
         self._run_btn = QPushButton("\u25B6\u25B6 Run All")
         self._run_btn.setMinimumHeight(32)
@@ -150,6 +165,10 @@ class MainToolBar(QToolBar):
     def set_run_enabled(self, enabled: bool) -> None:
         """Enable or disable the run button."""
         self._run_btn.setEnabled(enabled)
+
+    def set_run_pipeline_enabled(self, enabled: bool) -> None:
+        """Enable or disable the Run Pipeline button."""
+        self._run_pipeline_btn.setEnabled(enabled)
 
     # ------------------------------------------------------------------ #
     #  Signal handlers
