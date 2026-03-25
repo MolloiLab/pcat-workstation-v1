@@ -60,23 +60,27 @@ class _ChartCanvas(FigureCanvasQTAgg):
         self.draw()
 
 
-class _PolarChartCanvas(FigureCanvasQTAgg):
-    """Matplotlib canvas with a polar subplot for angular asymmetry."""
+class _RingCanvas(FigureCanvasQTAgg):
+    """Matplotlib canvas for the angular ring cross-section visualization."""
 
     def __init__(self, parent=None):
-        self.fig = Figure(figsize=(6, 4), dpi=100)
+        self.fig = Figure(figsize=(5, 5), dpi=100)
         self.fig.set_facecolor(_MPL_STYLE["facecolor"])
-        self.ax = self.fig.add_subplot(111, projection="polar")
+        self.ax = self.fig.add_subplot(111)
         self._apply_theme()
-        self.fig.tight_layout(pad=2.0)
+        self.fig.tight_layout(pad=1.0)
         super().__init__(self.fig)
         self.setParent(parent)
 
     def _apply_theme(self):
         ax = self.ax
         ax.set_facecolor(_MPL_STYLE["facecolor"])
+        ax.set_aspect("equal")
         ax.tick_params(colors=_MPL_STYLE["text_color"], labelsize=8)
-        ax.grid(True, color=_MPL_STYLE["grid_color"], linewidth=0.5, alpha=0.4)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     def clear_plot(self):
         self.ax.cla()
@@ -134,8 +138,8 @@ class AnalysisDashboard(QWidget):
         self._profile_canvas = _ChartCanvas()
         self._tabs.addTab(self._histogram_canvas, "HU Histogram")
         self._tabs.addTab(self._profile_canvas, "Radial Profile")
-        self._polar_canvas = _PolarChartCanvas()
-        self._tabs.addTab(self._polar_canvas, "Angular Asymmetry")
+        self._ring_canvas = _RingCanvas()
+        self._tabs.addTab(self._ring_canvas, "Angular Asymmetry")
         c_lay.addWidget(self._tabs)
         root.addWidget(self._content)
 
@@ -275,18 +279,20 @@ class AnalysisDashboard(QWidget):
         self._tabs.setCurrentWidget(canvas)
 
     def plot_angular_asymmetry(self, octant_data: dict, vessel_name: str):
-        """Plot 8-spoke polar ring chart of per-octant FAI values.
+        """Plot angular asymmetry as a ring cross-section image.
 
-        Values are shifted positive for polar rendering; tick labels show
-        the real (unshifted) HU values.
+        Renders a hollow artery cross-section with a colored ring around it.
+        Each angular sector of the ring is colored by its mean HU value
+        using a yellow (-190 HU) to red (-30 HU) colormap, showing the
+        spatial distribution of pericoronary fat around the vessel.
 
         Parameters
         ----------
         octant_data : dict with "sectors" (list of dicts with "angle_deg",
-                      "hu_mean", "fai_risk") and "sector_labels" (list of str)
+                      "hu_mean") and "sector_labels" (list of str)
         vessel_name : e.g., "LAD"
         """
-        canvas = self._polar_canvas
+        canvas = self._ring_canvas
         ax = canvas.ax
         ax.cla()
         canvas._apply_theme()
@@ -299,65 +305,117 @@ class AnalysisDashboard(QWidget):
 
         n = len(sectors)
         values = np.array([s["hu_mean"] for s in sectors], dtype=float)
-        risks = [s.get("fai_risk", "LOW") for s in sectors]
 
-        # Filter valid (non-NaN)
-        valid_mask = ~np.isnan(values)
-        if not valid_mask.any():
-            canvas.draw()
-            return
+        # Build a ring image: for each pixel, determine angle → sector → HU → color
+        size = 256
+        center = size / 2
+        r_inner = size * 0.20  # vessel lumen (hollow)
+        r_outer = size * 0.45  # outer edge of PCAT ring
 
-        # Compute offset to shift all values positive for polar rendering
-        min_val = float(np.nanmin(values))
-        offset = abs(min_val) + 10.0  # ensure all shifted values > 0
+        # Create coordinate grids
+        y, x = np.mgrid[:size, :size]
+        dx = x - center
+        dy = -(y - center)  # flip Y so anterior is up
+        r = np.sqrt(dx**2 + dy**2)
+        theta = np.arctan2(dx, dy)  # angle from top (anterior), clockwise
+        theta = theta % (2 * np.pi)
 
-        # Replace NaN with the minimum valid value for display
-        display_vals = np.where(valid_mask, values + offset, 0.0)
+        # Map angle to sector index
+        sector_idx = (theta / (2 * np.pi) * n).astype(int) % n
 
-        # Angles for each sector
-        angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
-        width = 2 * np.pi / n * 0.85
+        # Build RGBA image
+        ring_mask = (r >= r_inner) & (r <= r_outer)
+        lumen_mask = r < r_inner
 
-        # Color each bar: red if HIGH risk, green if LOW
-        colors = ["#ff453a" if r == "HIGH" else "#30d158" for r in risks]
-
-        bars = ax.bar(
-            angles, display_vals, width=width, bottom=0,
-            color=colors, alpha=0.8, edgecolor="#555", linewidth=0.5,
+        # FAI colormap: yellow (-190) → red (-30)
+        from matplotlib.colors import LinearSegmentedColormap
+        fai_cmap = LinearSegmentedColormap.from_list(
+            "fai", [(1.0, 0.95, 0.0), (1.0, 0.4, 0.0), (0.9, 0.1, 0.0)],
         )
 
-        # Draw risk threshold ring (shifted)
-        threshold_shifted = _RISK_THRESHOLD + offset
-        theta_ring = np.linspace(0, 2 * np.pi, 100)
-        ax.plot(theta_ring, np.full_like(theta_ring, threshold_shifted),
-                color="#CC2200", linewidth=1.5, linestyle="--", alpha=0.8,
-                label=f"FAI risk ({_RISK_THRESHOLD} HU)")
+        # Map HU values to colors
+        rgba = np.zeros((size, size, 4), dtype=float)
 
-        # Set sector labels around the ring
-        ax.set_xticks(angles)
-        if labels:
-            ax.set_xticklabels(labels, fontsize=7, color=_MPL_STYLE["text_color"])
-        ax.tick_params(axis="x", colors=_MPL_STYLE["text_color"], pad=8)
+        # Background: dark
+        rgba[:, :, :3] = 0.11  # match panel background
+        rgba[:, :, 3] = 1.0
 
-        # Set radial tick labels showing REAL (unshifted) HU values
-        # Pick ~4 nice tick positions in shifted space, label with real values
-        r_max = float(np.nanmax(display_vals)) * 1.15 if np.nanmax(display_vals) > 0 else 10
-        ax.set_ylim(0, r_max)
-        n_rticks = 4
-        tick_positions = np.linspace(0, r_max, n_rticks + 1)[1:]  # skip 0
-        real_values = tick_positions - offset
-        ax.set_yticks(tick_positions)
-        ax.set_yticklabels([f"{v:.0f}" for v in real_values], fontsize=7,
-                           color=_MPL_STYLE["text_color"])
+        # Lumen: black (hollow)
+        rgba[lumen_mask, :3] = 0.05
+        rgba[lumen_mask, 3] = 1.0
+
+        # Vessel wall circle (white ring)
+        wall_mask = (r >= r_inner - 2) & (r < r_inner + 1)
+        rgba[wall_mask, :3] = 0.7
+        rgba[wall_mask, 3] = 1.0
+
+        # Ring sectors colored by HU
+        for i in range(n):
+            sec_mask = ring_mask & (sector_idx == i)
+            if not sec_mask.any():
+                continue
+            hu = values[i]
+            if np.isnan(hu):
+                rgba[sec_mask, :3] = 0.2  # gray for no data
+            else:
+                t = np.clip((hu - _FAI_RANGE[0]) / (_FAI_RANGE[1] - _FAI_RANGE[0]), 0, 1)
+                color = fai_cmap(t)
+                rgba[sec_mask, 0] = color[0]
+                rgba[sec_mask, 1] = color[1]
+                rgba[sec_mask, 2] = color[2]
+            rgba[sec_mask, 3] = 1.0
+
+        # Draw sector boundaries (thin dark lines)
+        for i in range(n):
+            angle = 2 * np.pi * i / n
+            for rr in np.linspace(r_inner, r_outer, 50):
+                px = int(center + rr * np.sin(angle))
+                py = int(center - rr * np.cos(angle))
+                if 0 <= px < size and 0 <= py < size:
+                    rgba[py, px, :3] = 0.2
+                    rgba[py, px, 3] = 1.0
+
+        ax.imshow(rgba, origin="upper")
+
+        # Add sector labels around the outside
+        label_r = r_outer + 15
+        for i, label in enumerate(labels):
+            angle = 2 * np.pi * i / n + np.pi / n  # center of sector
+            lx = center + label_r * np.sin(angle)
+            ly = center - label_r * np.cos(angle)
+            ax.text(lx, ly, label, fontsize=7, ha="center", va="center",
+                    color=_MPL_STYLE["text_color"])
+
+        # Add HU values inside each sector
+        hu_r = (r_inner + r_outer) / 2
+        for i in range(n):
+            hu = values[i]
+            if np.isnan(hu):
+                continue
+            angle = 2 * np.pi * i / n + np.pi / n
+            hx = center + hu_r * np.sin(angle)
+            hy = center - hu_r * np.cos(angle)
+            ax.text(hx, hy, f"{hu:.0f}", fontsize=7, ha="center", va="center",
+                    color="white", fontweight="bold")
+
+        # Colorbar
+        sm = ax.imshow(np.array([[_FAI_RANGE[0], _FAI_RANGE[1]]]),
+                       cmap=fai_cmap, vmin=_FAI_RANGE[0], vmax=_FAI_RANGE[1],
+                       aspect="auto", visible=False)
+        cbar = canvas.fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.01,
+                                   orientation="vertical")
+        cbar.set_label("HU", fontsize=9, color=_MPL_STYLE["text_color"])
+        cbar.ax.tick_params(colors=_MPL_STYLE["text_color"], labelsize=7)
 
         ax.set_title(
-            f"{vessel_name} Angular FAI Asymmetry",
+            f"{vessel_name} Angular FAI Distribution",
             fontsize=_MPL_STYLE["font_size"] + 1,
             color=_MPL_STYLE["text_color"],
-            pad=15,
         )
+        ax.set_xlim(0, size)
+        ax.set_ylim(size, 0)
 
-        canvas.fig.tight_layout(pad=2.0)
+        canvas.fig.tight_layout(pad=1.0)
         canvas.draw()
         self._tabs.setCurrentWidget(canvas)
 
@@ -365,4 +423,4 @@ class AnalysisDashboard(QWidget):
         """Clear all plots."""
         self._histogram_canvas.clear_plot()
         self._profile_canvas.clear_plot()
-        self._polar_canvas.clear_plot()
+        self._ring_canvas.clear_plot()
