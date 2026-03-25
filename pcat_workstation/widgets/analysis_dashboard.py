@@ -327,11 +327,13 @@ class AnalysisDashboard(QWidget):
         ring_mask = (r >= r_inner) & (r <= r_outer)
         lumen_mask = r < r_inner
 
-        # FAI colormap: yellow (-190) → red (-30)
+        # FAI colormap matching Oikonomou et al. / pipeline/visualize.py:
+        # yellow (#FFEE00) at -190 → orange (#FF8800) → red (#CC0000) at -30
         from matplotlib.colors import LinearSegmentedColormap
-        fai_cmap = LinearSegmentedColormap.from_list(
-            "fai", [(1.0, 0.95, 0.0), (1.0, 0.4, 0.0), (0.9, 0.1, 0.0)],
-        )
+        fai_cmap = LinearSegmentedColormap.from_list("fai", [
+            (0.0, "#FFEE00"), (0.4, "#FF8800"),
+            (0.7, "#FF4400"), (1.0, "#CC0000"),
+        ])
 
         # Map HU values to colors
         rgba = np.zeros((size, size, 4), dtype=float)
@@ -399,12 +401,15 @@ class AnalysisDashboard(QWidget):
                     color="white", fontweight="bold")
 
         # Colorbar
-        sm = ax.imshow(np.array([[_FAI_RANGE[0], _FAI_RANGE[1]]]),
-                       cmap=fai_cmap, vmin=_FAI_RANGE[0], vmax=_FAI_RANGE[1],
-                       aspect="auto", visible=False)
-        cbar = canvas.fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.01,
+        import matplotlib.cm as mcm
+        import matplotlib.colors as mcolors
+        sm = mcm.ScalarMappable(cmap=fai_cmap,
+                                norm=mcolors.Normalize(vmin=_FAI_RANGE[0], vmax=_FAI_RANGE[1]))
+        sm.set_array([])
+        cbar = canvas.fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02,
                                    orientation="vertical")
-        cbar.set_label("HU", fontsize=9, color=_MPL_STYLE["text_color"])
+        cbar.set_label("FAI (HU)", fontsize=9, color=_MPL_STYLE["text_color"])
+        cbar.set_ticks([_FAI_RANGE[0], -150, -110, -70, _FAI_RANGE[1]])
         cbar.ax.tick_params(colors=_MPL_STYLE["text_color"], labelsize=7)
 
         ax.set_title(

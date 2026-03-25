@@ -925,10 +925,18 @@ class CPRView(QWidget):
             rgb = np.stack([gray, gray, gray], axis=-1)  # (H, W, 3)
             fai_mask = (img_display >= -190.0) & (img_display <= -30.0) & ~np.isnan(img_display)
             if fai_mask.any():
+                # Use the same FAI colormap as pipeline/visualize.py:
+                # yellow (#FFEE00) at -190 → orange (#FF8800) → red (#CC0000) at -30
+                from matplotlib.colors import LinearSegmentedColormap
+                fai_cmap = LinearSegmentedColormap.from_list("fai", [
+                    (0.0, "#FFEE00"), (0.4, "#FF8800"),
+                    (0.7, "#FF4400"), (1.0, "#CC0000"),
+                ])
                 t = np.clip((img_display[fai_mask] - (-190.0)) / 160.0, 0, 1)
-                r = np.full_like(t, 255)
-                g = ((1.0 - t) * 220).astype(np.uint8)
-                b = np.zeros_like(t, dtype=np.uint8)
+                colors = fai_cmap(t)  # (N, 4) RGBA float [0,1]
+                r = (colors[:, 0] * 255).astype(np.uint8)
+                g = (colors[:, 1] * 255).astype(np.uint8)
+                b = (colors[:, 2] * 255).astype(np.uint8)
                 alpha = 0.6
                 rgb[fai_mask, 0] = np.clip(rgb[fai_mask, 0] * (1 - alpha) + r * alpha, 0, 255).astype(np.uint8)
                 rgb[fai_mask, 1] = np.clip(rgb[fai_mask, 1] * (1 - alpha) + g * alpha, 0, 255).astype(np.uint8)
