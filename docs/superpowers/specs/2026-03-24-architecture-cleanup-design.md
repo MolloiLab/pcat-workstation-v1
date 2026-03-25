@@ -1,0 +1,194 @@
+# PCAT Workstation: Architecture Cleanup + UX Overhaul
+
+**Date:** 2026-03-24
+**Status:** Draft
+**Goal:** Replace VTK-based seed editing with 2D QPainter overlays, merge seed state/controller, separate editing from analysis, match March 4 reference UX feel.
+
+---
+
+## 1. Core Principle
+
+**Editing** (fast, interactive, grayscale) is separated from **Analysis** (pipeline-computed, colored overlays, statistics). A "Run Pipeline" button triggers the transition.
+
+## 2. Two Modes
+
+### Edit Mode (after import, before pipeline)
+
+- VTK renders CT slices (scroll, W/L, zoom)
+- 2D QPainter overlay draws: seed markers, centerline spline, crosshair
+- CPR panel: grayscale, updates on mouse release, needle lines perpendicular to vessel tangent, cross-sections, axis labels (mm along vessel, lateral mm from centerline)
+- No VOI overlay, no FAI coloring, no analysis charts
+- All editing interactions are instant — no background threads except CPR regen on release
+
+### Analysis Mode (after "Run Pipeline")
+
+- VOI overlay appears on CT slices (colored PCAT region)
+- CPR gets FAI overlay (yellow -190 HU → red -30 HU) + colorbar
+- Analysis dashboard expands: radial profile (0-20mm, ±1 SD, risk cutoff), angular asymmetry (polar ring), HU histogram
+- Vessel Results panel shows per-vessel FAI values + risk
+
+## 3. "Run Pipeline" Button
+
+Prominent button in toolbar, same visual weight as "Import DICOM":
+- Grayed out until at least one vessel has ostium + ≥1 waypoint
+- Click → saves seeds → runs pipeline stages: fit spline → estimate radii → build VOI → compute FAI → angular asymmetry → radial profile
+- Progress in Pipeline sidebar (Ctrl+2)
+- On completion: enables analysis mode, FAI overlay appears, dashboard opens
+
+## 4. 2D Overlay System (replaces VTK seed/centerline actors)
+
+### Architecture
+
+```
+VTKSliceView
+  ├── _SafeVTKWidget (VTK renders CT slice only)
+  └── OverlayPainter (QPainter in paintEvent):
+        ├── Crosshair lines
+        ├── Seed markers
+        │     Square = ostium (vessel color, white edge)
+        │     Circle = waypoint (vessel color, white edge)
+        │     Yellow ring = selected seed
+        ├── Centerline spline (vessel color, slab-filtered)
+        └── VOI contour (after pipeline, optional)
+```
+
+### Coordinate Conversion
+
+`OverlayPainter` converts voxel [z,y,x] → screen pixels using the VTK camera projection matrix. Seeds exist in voxel space; drawing happens in screen space. No VTK actors needed.
+
+### Slab Filtering
+
+For each point (seed or centerline), check if it's within ±slab_voxels of the current slice along the viewing axis. Points outside the slab are not drawn. For the centerline spline, out-of-slab points get NaN coordinates, which breaks the line naturally (matching old editor behavior).
+
+Default slab thickness: 2mm (±1mm from current slice). Configurable via scroll+Shift in future.
+
+### Performance Target
+
+- Seed drag: < 16ms per frame (60fps capable)
+- QPainter overlay redraw: < 2ms
+- Spline recompute: < 5ms (cubic spline through ~10 points)
+- Total drag loop: move seed → recompute spline → redraw overlays on all 3 views
+
+## 5. Merged Seed Editor
+
+Collapse `SeedEditState` + `SeedEditController` into single `SeedEditor` class.
+
+### API
+
+```python
+class SeedEditor(QObject):
+    # Data
+    seeds: Dict[str, Dict]        # {vessel: {ostium, waypoints}}
+    centerlines: Dict[str, ndarray]  # {vessel: dense_spline}
+    current_vessel: str
+    selection: (vessel, type, index) or None
+
+    # Signals
+    seeds_changed = Signal(str)           # vessel
+    centerline_changed = Signal(str)      # vessel (triggers CPR regen)
+    selection_changed = Signal()
+    save_requested = Signal()
+
+    # Mouse handlers (called by VTKSliceView)
+    on_left_press(voxel_ijk) → select seed / start drag / place ostium
+    on_left_drag(voxel_ijk) → move seed + recompute spline (no signals)
+    on_left_release() → push history + emit centerline_changed
+    on_right_click(voxel_ijk) → delete nearest waypoint
+
+    # Keyboard handlers
+    on_key(key, modifiers):
+        Enter → insert waypoint after selected (at crosshair position)
+        Backspace → delete selected seed (ostium or waypoint)
+        Left/Right → cycle through seeds
+        Ctrl+Z → undo
+        Ctrl+Shift+Z → redo
+        Ctrl+S → save
+
+    # Helpers
+    get_all_seeds(vessel) → flat list [ostium, wp0, wp1, ...]
+    recompute_centerline(vessel) → updates self.centerlines[vessel]
+    save_to_session(session) → persist to PatientSession
+```
+
+### Selection Model
+
+Integer index into flat seed list: `[ostium, wp0, wp1, ...]`
+- Arrow keys increment/decrement this index
+- Enter inserts after the selected index (selection advances to new point)
+- Backspace deletes at the selected index (selection clamps)
+
+This matches the March 4 editor exactly.
+
+## 6. CPR Panel
+
+### During Editing
+
+- Grayscale CPR image (no FAI coloring)
+- Generated by `CPRWorker` (async QThread) on mouse release
+- Needle lines: A (yellow), B (cyan), C (yellow)
+  - Perpendicular to local vessel tangent at each position
+  - Draggable: click to move B, drag A/C to adjust spacing
+- Cross-section panels (A, B, C): sampled perpendicular to vessel at needle position
+- Axis labels: X = "mm along vessel", Y = "lateral mm from centerline"
+- Rotation slider: rotates the sampling plane around the vessel tangent
+
+### After Pipeline
+
+- Same as above, plus:
+- FAI overlay: yellow (-190 HU) → red (-30 HU) on fat voxels, alpha=0.6
+- Colorbar showing HU scale
+
+### Dead Code Removal
+
+Remove from `cpr_view.py`:
+- `contour_result` field and all references
+- `_draw_wall_boundaries()` (depends on dead ContourResult)
+- `_draw_pcat_boundary()` (depends on dead ContourResult)
+- Old `_y_for_index` / `_index_for_y` aliases
+
+## 7. File Structure
+
+### Before (current)
+
+```
+main_window.py          1112 lines  (orchestration + state + view logic)
+vtk_slice_view.py       1274 lines  (VTK + seed actors + centerline actors + clipping)
+cpr_view.py             1246 lines  (CPR + cross-sections + dead contour code)
+seed_edit_controller.py  329 lines  (mouse/key handlers)
+seed_edit_state.py       435 lines  (data + spline + history)
+```
+
+### After
+
+```
+main_window.py          ~600 lines  (layout + signal wiring, no direct widget manipulation)
+vtk_slice_view.py       ~700 lines  (VTK CT rendering only, no seed/centerline actors)
+overlay_painter.py      ~250 lines  (NEW: QPainter 2D overlay for seeds + centerline)
+cpr_view.py             ~800 lines  (cleaned: no dead contour code)
+seed_editor.py          ~450 lines  (NEW: merged state + controller + spline)
+```
+
+Deleted files:
+- `controllers/seed_edit_controller.py` (merged into `seed_editor.py`)
+- `models/seed_edit_state.py` (merged into `seed_editor.py`)
+
+## 8. What Stays Unchanged
+
+- `pipeline_worker.py` — pipeline stages (fit spline, radii, VOI, FAI stats)
+- `cpr_worker.py` — async CPR generation
+- `batch_worker.py` — batch processing
+- `analysis_dashboard.py` — radial profile, angular asymmetry, histogram
+- `progress_panel.py` — pipeline stage display
+- `patient_session.py` — session persistence
+- `pipeline/pcat_segment.py` — VOI construction + FAI computation
+- `pipeline/radial_profile.py` — radial HU profile computation
+
+## 9. Migration Strategy
+
+Phase 1: Create `overlay_painter.py` + `seed_editor.py`, wire into VTKSliceView
+Phase 2: Remove VTK seed/centerline actor code from `vtk_slice_view.py`
+Phase 3: Clean up `main_window.py` signal handlers
+Phase 4: Clean up `cpr_view.py` dead code + fix needle perpendicularity
+Phase 5: Add "Run Pipeline" button to toolbar
+
+Each phase is independently testable. The app should work after each phase.
