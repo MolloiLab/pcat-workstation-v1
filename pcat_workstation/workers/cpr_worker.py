@@ -15,6 +15,70 @@ import numpy as np
 from PySide6.QtCore import QThread, Signal
 
 
+def build_cpr_fast(
+    volume: np.ndarray,
+    centerline_ijk: np.ndarray,
+    spacing_mm: list,
+    pixels_wide: int = 512,
+    pixels_high: int = 256,
+    width_mm: float = 25.0,
+    slab_mm: float = 3.0,
+) -> dict | None:
+    """Fast CPR generation (~100ms) for live editing preview.
+
+    Bypasses _compute_cpr_data's slow aorta-prepend logic.
+    Calls the building blocks directly:
+      1. _bezier_fit_centerline (spline fit)
+      2. _sample_bezier_frame (Bishop frame)
+      3. _build_cpr_image_fast (trilinear sampling)
+
+    Returns dict with keys:
+      cpr_image: (pixels_wide, pixels_high) float32 array
+      N_frame, B_frame: (pixels_wide, 3) Bishop frame vectors
+      positions_mm: (pixels_wide, 3) centerline positions in mm
+      arclengths: (pixels_wide,) arc-length at each position
+    Or None if centerline too short.
+    """
+    from pipeline.visualize import (
+        _bezier_fit_centerline,
+        _build_cpr_image_fast,
+        _sample_bezier_frame,
+    )
+
+    # Convert centerline from voxel indices to mm
+    cl_mm = centerline_ijk * np.array(spacing_mm, dtype=np.float64)
+
+    # Fit cubic spline
+    try:
+        cs, total_len = _bezier_fit_centerline(cl_mm)
+    except ValueError:
+        return None
+
+    # Sample Bishop frame at pixels_wide positions
+    s, positions, tangents, normals, binormals = _sample_bezier_frame(
+        cs, total_len, pixels_wide,
+    )
+
+    # Build CPR image via trilinear interpolation
+    vox_size = np.array(spacing_mm, dtype=np.float64)
+    cpr_image = _build_cpr_image_fast(
+        volume, vox_size, positions, normals, binormals,
+        n_rows=pixels_high, row_extent_mm=width_mm, slab_mm=slab_mm,
+    )
+
+    # cpr_image from _build_cpr_image_fast is (n_rows, n_cols) = (pixels_high, pixels_wide).
+    # The caller expects (pixels_wide, pixels_high) to match _compute_cpr_data's convention.
+    cpr_image = cpr_image.T
+
+    return {
+        "cpr_image": cpr_image,
+        "N_frame": normals,
+        "B_frame": binormals,
+        "positions_mm": positions,
+        "arclengths": s,
+    }
+
+
 class CPRWorker(QThread):
     """Generate a CPR image from a spline centerline on a background thread.
 
@@ -43,25 +107,23 @@ class CPRWorker(QThread):
 
     def run(self) -> None:
         try:
-            from pipeline.visualize import _compute_cpr_data
-
-            cpr_vol, N_frame, B_frame, positions, arclengths, n_h, n_w = (
-                _compute_cpr_data(
-                    self.volume,
-                    self.centerline_ijk,
-                    self.spacing_mm,
-                    slab_thickness_mm=3.0,
-                    width_mm=25.0,
-                    pixels_wide=512,
-                    pixels_high=256,
-                )
+            result = build_cpr_fast(
+                self.volume,
+                self.centerline_ijk,
+                self.spacing_mm,
+                pixels_wide=512,
+                pixels_high=256,
+                width_mm=25.0,
+                slab_mm=3.0,
             )
-            self.cpr_ready.emit(self.vessel, cpr_vol, 25.0)
+            if result is None:
+                return
+            self.cpr_ready.emit(self.vessel, result["cpr_image"], 25.0)
             self.cpr_frame_ready.emit(self.vessel, {
-                "N_frame": N_frame,
-                "B_frame": B_frame,
-                "positions_mm": positions,
-                "arclengths": arclengths,
+                "N_frame": result["N_frame"],
+                "B_frame": result["B_frame"],
+                "positions_mm": result["positions_mm"],
+                "arclengths": result["arclengths"],
                 "volume": self.volume,
                 "spacing": self.spacing_mm,
             })
