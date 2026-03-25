@@ -480,13 +480,14 @@ class PipelineWorker(QThread):
                     try:
                         from pipeline.radial_profile import compute_radial_profile
                         hu_values = volume[voi_mask].astype(np.float32)
-                        distances_mm, mean_hu = compute_radial_profile(
+                        distances_mm, mean_hu, std_hu = compute_radial_profile(
                             volume, voi_mask, spacing_mm=spacing_mm,
                         )
                         analysis_payload = {
                             "hu_values": hu_values,
                             "distances_mm": distances_mm,
                             "mean_hu": mean_hu,
+                            "std_hu": std_hu,
                         }
                         if "octants" in stats:
                             analysis_payload["octants"] = stats["octants"]

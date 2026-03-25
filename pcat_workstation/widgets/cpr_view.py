@@ -507,7 +507,8 @@ class _CrossSectionPanel(QWidget):
         self._right_dragging = False
         self._last_drag_pos: Optional[QPointF] = None
 
-        self.setMinimumWidth(60)
+        self.setMinimumWidth(150)
+        self.setMinimumHeight(150)
         self.setMouseTracking(True)
 
     def set_cross_section(

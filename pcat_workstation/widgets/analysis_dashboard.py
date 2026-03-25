@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from matplotlib.ticker import MaxNLocator
 
 # Vessel colors matching the workstation palette
 _VESSEL_COLORS = {
@@ -59,9 +60,28 @@ class _ChartCanvas(FigureCanvasQTAgg):
         self.draw()
 
 
-class _PolarChartCanvas(_ChartCanvas):
-    """Reuse standard Cartesian canvas for angular asymmetry bar chart."""
-    pass
+class _PolarChartCanvas(FigureCanvasQTAgg):
+    """Matplotlib canvas with a polar subplot for angular asymmetry."""
+
+    def __init__(self, parent=None):
+        self.fig = Figure(figsize=(6, 4), dpi=100)
+        self.fig.set_facecolor(_MPL_STYLE["facecolor"])
+        self.ax = self.fig.add_subplot(111, projection="polar")
+        self._apply_theme()
+        self.fig.tight_layout(pad=2.0)
+        super().__init__(self.fig)
+        self.setParent(parent)
+
+    def _apply_theme(self):
+        ax = self.ax
+        ax.set_facecolor(_MPL_STYLE["facecolor"])
+        ax.tick_params(colors=_MPL_STYLE["text_color"], labelsize=8)
+        ax.grid(True, color=_MPL_STYLE["grid_color"], linewidth=0.5, alpha=0.4)
+
+    def clear_plot(self):
+        self.ax.cla()
+        self._apply_theme()
+        self.draw()
 
 
 class AnalysisDashboard(QWidget):
@@ -75,7 +95,7 @@ class AnalysisDashboard(QWidget):
         self._build_ui()
         self.set_collapsed(True)
 
-    # ── UI construction ─────────────────────────────────────────────
+    # -- UI construction -----------------------------------------------------
 
     def _build_ui(self):
         self.setStyleSheet("background: #2c2c2e;")
@@ -95,7 +115,7 @@ class AnalysisDashboard(QWidget):
         h_lay.addWidget(title)
         h_lay.addStretch()
 
-        self._toggle_btn = QPushButton("▲")
+        self._toggle_btn = QPushButton("\u25b2")
         self._toggle_btn.setFixedSize(28, 28)
         self._toggle_btn.setStyleSheet(
             "QPushButton { border: none; color: #636366; font-size: 14pt; background: transparent; }"
@@ -119,18 +139,18 @@ class AnalysisDashboard(QWidget):
         c_lay.addWidget(self._tabs)
         root.addWidget(self._content)
 
-    # ── Collapse / expand ────────────────────────────────────────────
+    # -- Collapse / expand ---------------------------------------------------
 
     def set_collapsed(self, collapsed: bool):
         self._collapsed = collapsed
         self._content.setVisible(not collapsed)
-        self._toggle_btn.setText("▲" if collapsed else "▼")
+        self._toggle_btn.setText("\u25b2" if collapsed else "\u25bc")
         if collapsed:
             self.setFixedHeight(36)
         else:
             self.setFixedHeight(self._EXPANDED_HEIGHT)
 
-    # ── Plotting API ─────────────────────────────────────────────────
+    # -- Plotting API --------------------------------------------------------
 
     def plot_histogram(self, hu_values: np.ndarray, vessel_name: str):
         """Plot HU distribution histogram for a PCAT VOI."""
@@ -164,41 +184,93 @@ class AnalysisDashboard(QWidget):
         self._tabs.setCurrentWidget(canvas)
 
     def plot_radial_profile(
-        self, distances_mm: np.ndarray, mean_hu: np.ndarray, vessel_name: str,
+        self,
+        distances_mm: np.ndarray,
+        mean_hu: np.ndarray,
+        vessel_name: str,
+        std_hu: np.ndarray | None = None,
     ):
-        """Plot mean HU vs radial distance from vessel wall."""
+        """Plot mean HU vs radial distance from vessel wall (reference style).
+
+        Matches the left panel of pipeline/visualize.py plot_radial_hu_profile.
+        """
         canvas = self._profile_canvas
         ax = canvas.ax
         ax.cla()
         canvas._apply_theme()
 
-        color = _VESSEL_COLORS.get(vessel_name, "#666666")
-        ax.plot(distances_mm, mean_hu, color=color, linewidth=2)
+        valid = ~np.isnan(mean_hu)
 
-        # Risk threshold line
-        ax.axhline(_RISK_THRESHOLD, linestyle="--", color="#888", linewidth=1)
-        ax.text(
-            distances_mm[-1] * 0.7, _RISK_THRESHOLD + 2,
-            f"{_RISK_THRESHOLD} HU", fontsize=9, color="#888",
-        )
+        # Background: typical FAI range band
+        ax.axhspan(-90, -65, alpha=0.12, color="lightblue",
+                   label="Typical FAI range (-90 to -65 HU)")
+
+        # FAI risk threshold dashed line
+        ax.axhline(_RISK_THRESHOLD, color="#CC2200", linewidth=1.6,
+                   linestyle=":", alpha=0.9,
+                   label=f"FAI risk cut-off ({_RISK_THRESHOLD} HU)")
+
+        if valid.any():
+            # Mean HU line with circle markers
+            ax.plot(
+                distances_mm[valid],
+                mean_hu[valid],
+                marker="o",
+                markersize=5,
+                linewidth=2,
+                color="#D94040",
+                zorder=3,
+                label="Mean FAI HU",
+            )
+
+            # +/- 1 SD shaded band (if std data available)
+            if std_hu is not None:
+                std_valid = ~np.isnan(std_hu)
+                both_valid = valid & std_valid
+                if both_valid.any():
+                    ax.fill_between(
+                        distances_mm[both_valid],
+                        mean_hu[both_valid] - std_hu[both_valid],
+                        mean_hu[both_valid] + std_hu[both_valid],
+                        alpha=0.25,
+                        color="#D94040",
+                        label="\u00b11 SD",
+                    )
+        else:
+            ax.text(
+                0.5, 0.5, "No fat voxels found\nin this VOI",
+                ha="center", va="center", transform=ax.transAxes,
+                fontsize=12, color="gray",
+            )
 
         ax.set_xlabel("Distance from vessel wall (mm)", fontsize=_MPL_STYLE["font_size"])
-        ax.set_ylabel("Mean HU", fontsize=_MPL_STYLE["font_size"])
+        ax.set_ylabel("Mean HU (FAI range)", fontsize=_MPL_STYLE["font_size"])
+        ax.set_xlim(0, 20)
+        ax.set_ylim(-105, -50)
         ax.set_title(
             f"{vessel_name} Radial HU Profile",
             fontsize=_MPL_STYLE["font_size"] + 1, color=_MPL_STYLE["text_color"],
         )
+        ax.legend(fontsize=8, facecolor=_MPL_STYLE["facecolor"],
+                  edgecolor=_MPL_STYLE["grid_color"],
+                  labelcolor=_MPL_STYLE["text_color"])
+        ax.grid(alpha=0.3, linewidth=0.5)
+        ax.xaxis.set_major_locator(MaxNLocator(10))
+
         canvas.fig.tight_layout(pad=1.5)
         canvas.draw()
         self._tabs.setCurrentWidget(canvas)
 
     def plot_angular_asymmetry(self, octant_data: dict, vessel_name: str):
-        """Plot 8-spoke polar chart of per-octant FAI values.
+        """Plot 8-spoke polar ring chart of per-octant FAI values.
+
+        Values are shifted positive for polar rendering; tick labels show
+        the real (unshifted) HU values.
 
         Parameters
         ----------
-        octant_data : dict with "sectors" (list of dicts with "angle_deg", "hu_mean", "fai_risk")
-                      and "sector_labels" (list of str)
+        octant_data : dict with "sectors" (list of dicts with "angle_deg",
+                      "hu_mean", "fai_risk") and "sector_labels" (list of str)
         vessel_name : e.g., "LAD"
         """
         canvas = self._polar_canvas
@@ -213,39 +285,66 @@ class AnalysisDashboard(QWidget):
             return
 
         n = len(sectors)
-        values = [s["hu_mean"] for s in sectors]
+        values = np.array([s["hu_mean"] for s in sectors], dtype=float)
         risks = [s.get("fai_risk", "LOW") for s in sectors]
 
-        # Skip if all NaN
-        valid = [v for v in values if not np.isnan(v)]
-        if not valid:
+        # Filter valid (non-NaN)
+        valid_mask = ~np.isnan(values)
+        if not valid_mask.any():
             canvas.draw()
             return
 
-        # Replace NaN with 0 for display
-        display_vals = [v if not np.isnan(v) else 0.0 for v in values]
+        # Compute offset to shift all values positive for polar rendering
+        min_val = float(np.nanmin(values))
+        offset = abs(min_val) + 10.0  # ensure all shifted values > 0
+
+        # Replace NaN with the minimum valid value for display
+        display_vals = np.where(valid_mask, values + offset, 0.0)
+
+        # Angles for each sector
+        angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        width = 2 * np.pi / n * 0.85
 
         # Color each bar: red if HIGH risk, green if LOW
         colors = ["#ff453a" if r == "HIGH" else "#30d158" for r in risks]
 
-        x = np.arange(n)
-        ax.bar(x, display_vals, color=colors, alpha=0.8,
-               edgecolor="#555", linewidth=0.5)
+        bars = ax.bar(
+            angles, display_vals, width=width, bottom=0,
+            color=colors, alpha=0.8, edgecolor="#555", linewidth=0.5,
+        )
 
-        # Risk threshold line
-        ax.axhline(_RISK_THRESHOLD, linestyle="--", color="#888", linewidth=1)
-        ax.text(n - 0.5, _RISK_THRESHOLD + 2, f"{_RISK_THRESHOLD} HU",
-                fontsize=9, color="#888")
+        # Draw risk threshold ring (shifted)
+        threshold_shifted = _RISK_THRESHOLD + offset
+        theta_ring = np.linspace(0, 2 * np.pi, 100)
+        ax.plot(theta_ring, np.full_like(theta_ring, threshold_shifted),
+                color="#CC2200", linewidth=1.5, linestyle="--", alpha=0.8,
+                label=f"FAI risk ({_RISK_THRESHOLD} HU)")
 
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, fontsize=8, rotation=45, ha="right")
-        ax.set_ylabel("Mean HU", fontsize=_MPL_STYLE["font_size"])
+        # Set sector labels around the ring
+        ax.set_xticks(angles)
+        if labels:
+            ax.set_xticklabels(labels, fontsize=7, color=_MPL_STYLE["text_color"])
+        ax.tick_params(axis="x", colors=_MPL_STYLE["text_color"], pad=8)
+
+        # Set radial tick labels showing REAL (unshifted) HU values
+        # Pick ~4 nice tick positions in shifted space, label with real values
+        r_max = float(np.nanmax(display_vals)) * 1.15 if np.nanmax(display_vals) > 0 else 10
+        ax.set_ylim(0, r_max)
+        n_rticks = 4
+        tick_positions = np.linspace(0, r_max, n_rticks + 1)[1:]  # skip 0
+        real_values = tick_positions - offset
+        ax.set_yticks(tick_positions)
+        ax.set_yticklabels([f"{v:.0f}" for v in real_values], fontsize=7,
+                           color=_MPL_STYLE["text_color"])
+
         ax.set_title(
             f"{vessel_name} Angular FAI Asymmetry",
             fontsize=_MPL_STYLE["font_size"] + 1,
             color=_MPL_STYLE["text_color"],
+            pad=15,
         )
-        canvas.fig.tight_layout(pad=1.5)
+
+        canvas.fig.tight_layout(pad=2.0)
         canvas.draw()
         self._tabs.setCurrentWidget(canvas)
 

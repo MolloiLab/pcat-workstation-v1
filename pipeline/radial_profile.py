@@ -38,10 +38,12 @@ def compute_radial_profile(
     -------
     distances_mm : (n_bins,) -- bin centres in mm
     mean_hu : (n_bins,) -- mean HU at each distance (NaN where no data)
+    std_hu : (n_bins,) -- std HU at each distance (NaN where no data)
     """
     if not voi_mask.any():
         return (
             np.linspace(0, max_distance_mm, n_bins),
+            np.full(n_bins, np.nan),
             np.full(n_bins, np.nan),
         )
 
@@ -60,6 +62,7 @@ def compute_radial_profile(
     bin_edges = np.linspace(0, effective_max, n_bins + 1)
     distances_mm = (bin_edges[:-1] + bin_edges[1:]) / 2.0
     mean_hu = np.full(n_bins, np.nan)
+    std_hu = np.full(n_bins, np.nan)
 
     for i in range(n_bins):
         if i < n_bins - 1:
@@ -68,5 +71,6 @@ def compute_radial_profile(
             mask = (d_vals >= bin_edges[i]) & (d_vals <= bin_edges[i + 1])
         if mask.any():
             mean_hu[i] = float(np.mean(hu_vals[mask]))
+            std_hu[i] = float(np.std(hu_vals[mask]))
 
-    return distances_mm, mean_hu
+    return distances_mm, mean_hu, std_hu

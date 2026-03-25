@@ -729,7 +729,7 @@ class VTKSliceView(QWidget):
                 ijk = entry["ostium"]
                 z, y, x = float(ijk[0]), float(ijk[1]), float(ijk[2])
                 cx, cy, cz = x * sx, y * sy, z * sz
-                actors = self._create_cube_marker(cx, cy, cz, 5.0, rgb)
+                actors = self._create_cube_marker(cx, cy, cz, 3.5, rgb)
                 self._seed_actor_info.append({
                     "actors": actors,
                     "world_pos": (cx, cy, cz),
@@ -742,7 +742,7 @@ class VTKSliceView(QWidget):
             for idx, wp in enumerate(entry["waypoints"]):
                 z, y, x = float(wp[0]), float(wp[1]), float(wp[2])
                 cx, cy, cz = x * sx, y * sy, z * sz
-                actors = self._create_sphere_marker(cx, cy, cz, 2.5, rgb)
+                actors = self._create_sphere_marker(cx, cy, cz, 1.5, rgb)
                 self._seed_actor_info.append({
                     "actors": actors,
                     "world_pos": (cx, cy, cz),
@@ -1038,7 +1038,7 @@ class VTKSliceView(QWidget):
             cx, cy, cz = x * sx, y * sy, z * sz
             rgb = _VESSEL_COLORS_RGB.get(vessel, (232, 83, 58))
 
-            seed_actors = self._create_sphere_marker(cx, cy, cz, 2.5, rgb)
+            seed_actors = self._create_sphere_marker(cx, cy, cz, 1.5, rgb)
 
             self._seed_actor_info.append({
                 "actors": seed_actors,
@@ -1222,9 +1222,9 @@ class VTKSliceView(QWidget):
         # Build RGBA image (4 components) — subtle tint, Horos style
         rgba = np.zeros((nz, ny, nx, 4), dtype=np.uint8)
         color_map = {
-            1: (232, 83, 58, 40),    # LAD — red-orange, very subtle
-            2: (74, 144, 217, 40),   # LCx — blue, very subtle
-            3: (46, 204, 113, 40),   # RCA — green, very subtle
+            1: (255, 180, 50, 128),  # LAD — warm yellow-orange, visible
+            2: (100, 170, 240, 128), # LCx — blue, visible
+            3: (80, 220, 140, 128),  # RCA — green, visible
         }
         for vid, color in color_map.items():
             mask = combined == vid

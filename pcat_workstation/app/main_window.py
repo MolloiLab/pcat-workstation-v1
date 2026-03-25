@@ -701,6 +701,7 @@ class MainWindow(QMainWindow):
         self._analysis_dashboard.plot_histogram(data["hu_values"], vessel)
         self._analysis_dashboard.plot_radial_profile(
             data["distances_mm"], data["mean_hu"], vessel,
+            std_hu=data.get("std_hu"),
         )
         if "octants" in data:
             self._analysis_dashboard.plot_angular_asymmetry(data["octants"], vessel)
@@ -734,6 +735,7 @@ class MainWindow(QMainWindow):
             self._analysis_dashboard.plot_histogram(data["hu_values"], vessel)
             self._analysis_dashboard.plot_radial_profile(
                 data["distances_mm"], data["mean_hu"], vessel,
+                std_hu=data.get("std_hu"),
             )
             if "octants" in data:
                 self._analysis_dashboard.plot_angular_asymmetry(data["octants"], vessel)
