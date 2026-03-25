@@ -476,12 +476,15 @@ class PipelineWorker(QThread):
                         except Exception as ang_exc:
                             self._emit(f"  {vessel} angular asymmetry failed: {ang_exc}")
 
-                    # Compute radial profile and emit analysis data
+                    # Compute radial profile (0-20mm from vessel wall) and emit
                     try:
                         from pipeline.radial_profile import compute_radial_profile
                         hu_values = volume[voi_mask].astype(np.float32)
                         distances_mm, mean_hu, std_hu = compute_radial_profile(
                             volume, voi_mask, spacing_mm=spacing_mm,
+                            centerline_ijk=cl_data["proximal"],
+                            radii_mm=cl_data["radii"],
+                            max_distance_mm=20.0,
                         )
                         analysis_payload = {
                             "hu_values": hu_values,

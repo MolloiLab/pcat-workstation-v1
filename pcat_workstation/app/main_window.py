@@ -75,13 +75,14 @@ class MainWindow(QMainWindow):
         self._analysis_dashboard = AnalysisDashboard()
 
         # Vertical splitter: top = stack, bottom = dashboard
-        splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self._central_stack)
-        splitter.addWidget(self._analysis_dashboard)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        self._main_splitter = QSplitter(Qt.Vertical)
+        self._main_splitter.addWidget(self._central_stack)
+        self._main_splitter.addWidget(self._analysis_dashboard)
+        self._main_splitter.setStretchFactor(0, 1)
+        self._main_splitter.setStretchFactor(1, 0)
+        self._main_splitter.setChildrenCollapsible(False)
 
-        self.setCentralWidget(splitter)
+        self.setCentralWidget(self._main_splitter)
 
     def _setup_docks(self) -> None:
         # Left dock — DICOM Browser (closable, toggled via View menu)

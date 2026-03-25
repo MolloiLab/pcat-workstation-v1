@@ -145,15 +145,23 @@ class AnalysisDashboard(QWidget):
         self._collapsed = collapsed
         self._content.setVisible(not collapsed)
         self._toggle_btn.setText("\u25b2" if collapsed else "\u25bc")
-        if collapsed:
-            self.setMinimumHeight(36)
-            self.setMaximumHeight(36)
-        else:
-            self.setMinimumHeight(self._EXPANDED_HEIGHT)
-            self.setMaximumHeight(self._EXPANDED_HEIGHT)
-        # Force parent layout to recalculate — prevents ghosting
+        h = 36 if collapsed else self._EXPANDED_HEIGHT
+        self.setFixedHeight(h)
+        # Force the parent splitter to recompute sizes and repaint.
+        # QSplitter caches child sizes — need to poke it to update.
+        from PySide6.QtWidgets import QApplication, QSplitter
+        p = self.parentWidget()
+        while p is not None:
+            if isinstance(p, QSplitter):
+                # Recalculate splitter sizes
+                sizes = p.sizes()
+                p.setSizes(sizes)
+                break
+            p = p.parentWidget()
+        QApplication.processEvents()
+        self.update()
         if self.parentWidget():
-            self.parentWidget().updateGeometry()
+            self.parentWidget().update()
 
     # -- Plotting API --------------------------------------------------------
 
