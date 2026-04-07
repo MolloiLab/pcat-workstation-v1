@@ -35,6 +35,9 @@ jobs:
             # Skip binary files
             file --mime "$file" | grep -q "binary" && continue
 
+            # Skip this workflow file itself (regex patterns trigger false positives)
+            [[ "$file" == *"phi-scan.yml" ]] && continue
+
             CONTENT=$(cat "$file")
 
             # SSN: xxx-xx-xxxx
