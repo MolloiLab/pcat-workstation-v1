@@ -1,0 +1,107 @@
+name: PHI & Sensitive Data Scan
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  phi-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --name-only --diff-filter=ACMR ${{ github.event.pull_request.base.sha }} ${{ github.sha }} > changed_files.txt
+          else
+            git diff --name-only --diff-filter=ACMR HEAD~1 HEAD > changed_files.txt || echo "" > changed_files.txt
+          fi
+
+      - name: Scan for sensitive data
+        run: |
+          ISSUES=""
+          EXIT_CODE=0
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            [ ! -f "$file" ] && continue
+
+            # Skip binary files
+            file --mime "$file" | grep -q "binary" && continue
+
+            CONTENT=$(cat "$file")
+
+            # SSN: xxx-xx-xxxx
+            if echo "$CONTENT" | grep -Pn '\b\d{3}-\d{2}-\d{4}\b' | head -5; then
+              ISSUES="${ISSUES}\n- $file: Possible SSN"
+              EXIT_CODE=1
+            fi
+
+            # MRN / Medical Record Number
+            if echo "$CONTENT" | grep -Pin '(mrn|medical.record|patient.id)[:\s#]*\d{6,10}' | head -5; then
+              ISSUES="${ISSUES}\n- $file: Possible Medical Record Number"
+              EXIT_CODE=1
+            fi
+
+            # Date of birth with label
+            if echo "$CONTENT" | grep -Pin '(dob|date.of.birth|birthdate)[:\s]*(0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])[-/](19|20)\d{2}' | head -5; then
+              ISSUES="${ISSUES}\n- $file: Possible Date of Birth"
+              EXIT_CODE=1
+            fi
+
+            # Phone numbers with label
+            if echo "$CONTENT" | grep -Pin '(phone|tel|mobile|contact)[:\s]*[\(]?\d{3}[\)]?[-.\s]?\d{3}[-.\s]?\d{4}' | head -5; then
+              ISSUES="${ISSUES}\n- $file: Possible phone number"
+              EXIT_CODE=1
+            fi
+
+            # Bulk emails (3+ in one file = likely dataset)
+            EMAIL_COUNT=$(echo "$CONTENT" | grep -oiP '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | wc -l)
+            if [ "$EMAIL_COUNT" -ge 3 ]; then
+              ISSUES="${ISSUES}\n- $file: $EMAIL_COUNT email addresses (possible dataset)"
+              EXIT_CODE=1
+            fi
+
+            # UCI Student ID
+            if echo "$CONTENT" | grep -Pin '(student.id|uci.id|ucid)[:\s#]*\d{8}' | head -5; then
+              ISSUES="${ISSUES}\n- $file: Possible UCI Student ID"
+              EXIT_CODE=1
+            fi
+
+            # Patient name patterns
+            if echo "$CONTENT" | grep -Pin "(patient.name|patient_name|pt.name)[:\s=\"']+[A-Z][a-z]+\s+[A-Z][a-z]+" | head -5; then
+              ISSUES="${ISSUES}\n- $file: Possible hardcoded patient name"
+              EXIT_CODE=1
+            fi
+
+            # DICOM patient metadata
+            if echo "$CONTENT" | grep -Pin "(PatientName|PatientID|PatientBirthDate|InstitutionName)\s*[=:]\s*[\"']" | head -5; then
+              ISSUES="${ISSUES}\n- $file: Possible DICOM patient metadata"
+              EXIT_CODE=1
+            fi
+
+            # Sensitive file types
+            if echo "$file" | grep -qiP '\.env$|\.env\.|credentials\.json|\.pem$'; then
+              ISSUES="${ISSUES}\n- $file: Sensitive file type should not be committed"
+              EXIT_CODE=1
+            fi
+
+          done < changed_files.txt
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "============================================"
+            echo "SENSITIVE DATA DETECTED IN THIS COMMIT"
+            echo "============================================"
+            echo -e "$ISSUES"
+            echo ""
+            echo "If this is intentional test/mock data, use clearly fake values."
+            exit 1
+          else
+            echo "No sensitive data detected."
+          fi
